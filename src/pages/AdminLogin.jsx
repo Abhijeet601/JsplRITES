@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Shield, User, Lock, LogIn } from 'lucide-react';
+import { Shield, User, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 
@@ -10,18 +10,51 @@ const AdminLogin = () => {
   const [formData, setFormData] = useState({ username: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [validationErrors, setValidationErrors] = useState({});
 
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Load saved credentials if exists
+  useEffect(() => {
+    const savedUsername = localStorage.getItem('adminUsername');
+    const savedRememberMe = localStorage.getItem('adminRememberMe') === 'true';
+    if (savedRememberMe && savedUsername) {
+      setFormData(prev => ({ ...prev, username: savedUsername }));
+      setRememberMe(true);
+    }
+  }, []);
+
   const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    
+    // Clear validation error for this field
+    if (validationErrors[name]) {
+      setValidationErrors({ ...validationErrors, [name]: '' });
+    }
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    if (!formData.username.trim()) errors.username = 'Employee ID is required';
+    if (!formData.password) errors.password = 'Password is required';
+    return errors;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const response = await api.post(
@@ -29,6 +62,15 @@ const AdminLogin = () => {
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );
+
+      // Save credentials if remember me is checked
+      if (rememberMe) {
+        localStorage.setItem('adminUsername', formData.username);
+        localStorage.setItem('adminRememberMe', 'true');
+      } else {
+        localStorage.removeItem('adminUsername');
+        localStorage.removeItem('adminRememberMe');
+      }
 
       login(
         {
@@ -41,7 +83,7 @@ const AdminLogin = () => {
 
       navigate('/admin-dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -109,11 +151,14 @@ const AdminLogin = () => {
                     required
                     disabled={loading}
                     placeholder="Enter employee ID"
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
+                    className={`w-full pl-10 pr-4 py-3 border rounded-lg
                       focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                      outline-none text-gray-800"
+                      outline-none text-gray-800 transition ${validationErrors.username ? 'border-red-400' : 'border-gray-300'}`}
                   />
                 </div>
+                {validationErrors.username && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.username}</p>
+                )}
               </div>
 
               {/* Password */}
@@ -127,18 +172,42 @@ const AdminLogin = () => {
                     size={20}
                   />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
                     required
                     disabled={loading}
                     placeholder="Enter password"
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
+                    className={`w-full pl-10 pr-10 py-3 border rounded-lg
                       focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                      outline-none text-gray-800"
+                      outline-none text-gray-800 transition ${validationErrors.password ? 'border-red-400' : 'border-gray-300'}`}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
                 </div>
+                {validationErrors.password && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.password}</p>
+                )}
+              </div>
+
+              {/* Remember Me */}
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="rememberMe"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <label htmlFor="rememberMe" className="ml-2 text-sm text-gray-600">
+                  Remember me
+                </label>
               </div>
 
               {/* Button */}

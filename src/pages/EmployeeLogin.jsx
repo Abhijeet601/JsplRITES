@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Lock, Clock, LogIn } from 'lucide-react';
+import { User, Lock, Clock, LogIn, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 
@@ -16,7 +16,6 @@ const SHIFT_MAP = {
 };
 
 const OTHER_SHIFT_OPTIONS = [
-  // ✅ keep 8:30 options at top
   { label: '06:00 - 14:30 (8:30)', value: '06:00-14:30' },
   { label: '08:00 - 16:30 (8:30)', value: '08:00-16:30' },
   { label: '09:00 - 17:30 (8:30)', value: '09:00-17:30' },
@@ -25,32 +24,46 @@ const OTHER_SHIFT_OPTIONS = [
   { label: '17:00 - 01:30 (Night) (8:30)', value: '17:00-01:30' },
   { label: '21:00 - 05:30 (Night) (8:30)', value: '21:00-05:30' },
   { label: '22:00 - 06:30 (Night) (8:30)', value: '22:00-06:30' },
-
-  // If you want ONLY 8:30 options, remove any non-8:30 entries.
 ];
 
 const EmployeeLogin = () => {
   const [formData, setFormData] = useState({
     employee_id: '',
     password: '',
-    shift_type: 'general',       // A | B | C | general | other
-    custom_shift: '09:00-17:30', // used only when shift_type === other
+    shift_type: 'general',
+    custom_shift: '09:00-17:30',
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [validationErrors, setValidationErrors] = useState({});
 
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  // Load saved credentials
+  useEffect(() => {
+    const savedId = localStorage.getItem('employeeId');
+    const savedShift = localStorage.getItem('employeeShift');
+    const savedRememberMe = localStorage.getItem('employeeRememberMe') === 'true';
+    
+    if (savedRememberMe && savedId) {
+      setFormData(prev => ({
+        ...prev,
+        employee_id: savedId,
+        shift_type: savedShift || 'general'
+      }));
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
 
     setFormData((prev) => {
-      // shift_type changed
       if (name === 'shift_type') {
-        // When switching away from "other", keep custom_shift but it won't be used.
-        // When switching to "other", ensure custom_shift has a default.
         return {
           ...prev,
           shift_type: value,
@@ -60,6 +73,18 @@ const EmployeeLogin = () => {
 
       return { ...prev, [name]: value };
     });
+
+    // Clear validation error
+    if (validationErrors[name]) {
+      setValidationErrors({ ...validationErrors, [name]: '' });
+    }
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    if (!formData.employee_id.trim()) errors.employee_id = 'Employee ID is required';
+    if (!formData.password) errors.password = 'Password is required';
+    return errors;
   };
 
   const getSelectedShiftTime = () => {
@@ -72,46 +97,49 @@ const EmployeeLogin = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const selectedShiftTime = getSelectedShiftTime();
 
-      // ✅ Recommended payload (login should validate only id+password)
       const payload = {
         employee_id: formData.employee_id,
         password: formData.password,
       };
 
-      // ✅ If your backend needs shift at login, use this payload instead:
-      // const payload = {
-      //   employee_id: formData.employee_id,
-      //   password: formData.password,
-      //   shift_type: formData.shift_type,
-      //   shift_time: selectedShiftTime, // e.g. "09:00-17:30"
-      //   required_work_minutes: REQUIRED_WORK_MINUTES, // 510
-      // };
-
       const response = await api.post('/api/login', payload);
 
-      // ✅ Save shift info locally for whole app usage
+      // Save credentials if remember me is checked
+      if (rememberMe) {
+        localStorage.setItem('employeeId', formData.employee_id);
+        localStorage.setItem('employeeShift', formData.shift_type);
+        localStorage.setItem('employeeRememberMe', 'true');
+      } else {
+        localStorage.removeItem('employeeId');
+        localStorage.removeItem('employeeShift');
+        localStorage.removeItem('employeeRememberMe');
+      }
+
       const userData = {
         employee_id: response.data.user_name,
         role: 'employee',
-
-        // store shift selection
         shift_type: formData.shift_type,
-        shift_time: selectedShiftTime, // ✅ always 8:30 timing selected
-
-        // store required working hours
-        required_work_minutes: REQUIRED_WORK_MINUTES, // ✅ 510 (8:30)
+        shift_time: selectedShiftTime,
+        required_work_minutes: REQUIRED_WORK_MINUTES,
       };
 
       login(userData, response.data.access_token);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -173,11 +201,17 @@ const EmployeeLogin = () => {
                   value={formData.employee_id}
                   onChange={handleInputChange}
                   required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
-                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  disabled={loading}
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg
+                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition ${
+                      validationErrors.employee_id ? 'border-red-400' : 'border-gray-300'
+                    }`}
                   placeholder="Enter employee ID"
                 />
               </div>
+              {validationErrors.employee_id && (
+                <p className="text-red-500 text-xs mt-1">{validationErrors.employee_id}</p>
+              )}
             </div>
 
             {/* PASSWORD */}
@@ -188,16 +222,29 @@ const EmployeeLogin = () => {
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   value={formData.password}
                   onChange={handleInputChange}
                   required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
-                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  disabled={loading}
+                  className={`w-full pl-10 pr-10 py-3 border rounded-lg
+                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition ${
+                      validationErrors.password ? 'border-red-400' : 'border-gray-300'
+                    }`}
                   placeholder="Enter password"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
+              {validationErrors.password && (
+                <p className="text-red-500 text-xs mt-1">{validationErrors.password}</p>
+              )}
             </div>
 
             {/* SHIFT TYPE */}
@@ -212,8 +259,9 @@ const EmployeeLogin = () => {
                   name="shift_type"
                   value={formData.shift_type}
                   onChange={handleInputChange}
+                  disabled={loading}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
-                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+                    focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white transition"
                 >
                   <option value="A">{SHIFT_MAP.A.label}</option>
                   <option value="B">{SHIFT_MAP.B.label}</option>
@@ -224,8 +272,12 @@ const EmployeeLogin = () => {
               </div>
 
               {/* OTHER SHIFT TIMINGS */}
-              {showOther && (
-                <div className="mt-3">
+              {formData.shift_type === 'other' && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-3"
+                >
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Shift Timing
                   </label>
@@ -235,8 +287,9 @@ const EmployeeLogin = () => {
                       name="custom_shift"
                       value={formData.custom_shift}
                       onChange={handleInputChange}
+                      disabled={loading}
                       className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg
-                        focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
+                        focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white transition"
                     >
                       {OTHER_SHIFT_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -245,13 +298,28 @@ const EmployeeLogin = () => {
                       ))}
                     </select>
                   </div>
-                </div>
+                </motion.div>
               )}
 
               {/* Preview */}
               <p className="mt-2 text-xs text-gray-500">
-                Selected shift timing: <span className="font-semibold">{getSelectedShiftTime()}</span> (8:30)
+                Selected shift timing: <span className="font-semibold">{getSelectedShiftTime()}</span> (8:30 hours)
               </p>
+            </div>
+
+            {/* Remember Me */}
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={loading}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+              />
+              <label htmlFor="rememberMe" className="ml-2 text-sm text-gray-600">
+                Remember my details
+              </label>
             </div>
 
             {/* BUTTON */}
@@ -262,7 +330,7 @@ const EmployeeLogin = () => {
                 hover:from-blue-700 hover:to-green-700
                 text-white py-3 text-lg font-semibold rounded-xl
                 shadow-lg hover:shadow-xl transition
-                disabled:opacity-50"
+                disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <span className="flex items-center justify-center">

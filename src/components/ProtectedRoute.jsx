@@ -24,20 +24,8 @@ const ProtectedRoute = ({ children, requiredRole }) => {
   }
 
   if (requiredRole && user.role !== requiredRole) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white rounded-2xl shadow-lg p-8 text-center max-w-sm">
-          <ShieldAlert className="mx-auto mb-4 text-red-500" size={40} />
-          <h2 className="text-xl font-bold text-gray-800 mb-2">
-            Access Denied
-          </h2>
-          <p className="text-gray-600 mb-4">
-            You don’t have permission to access this page.
-          </p>
-          <Navigate to="/login" replace />
-        </div>
-      </div>
-    );
+    const redirectPath = user.role === 'admin' ? '/admin-dashboard' : '/dashboard';
+    return <Navigate to={redirectPath} replace={true} />;
   }
 
   return children;

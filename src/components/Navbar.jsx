@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { UserCircle, ArrowLeft } from 'lucide-react';
+import { UserCircle, ArrowLeft, Menu } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Navbar = () => {
@@ -11,6 +11,8 @@ const Navbar = () => {
     navigate(-1);
   };
 
+  const handleHome = () => navigate('/admin');
+
   if (!user) return null;
 
   return (
@@ -18,38 +20,25 @@ const Navbar = () => {
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex justify-between items-center py-4">
 
-          {/* BACK BUTTON AND BRAND */}
           <div className="flex items-center gap-4">
             <button
-              onClick={handleBack}
+              onClick={handleHome}
               className="text-white hover:bg-white/20 p-2 rounded-lg transition"
-              title="Go Back"
+              title="Home"
             >
-              <ArrowLeft size={20} />
+              <Menu size={20} />
             </button>
-            <Link
-              to="/"
-              className="flex items-center gap-3"
-            >
-              <img
-                src="/rites-logo.jpeg"
-                alt="RITES Logo"
-                className="h-8 w-auto"
-              />
-              <span className="text-xl font-bold text-white tracking-wide">
-                Geo Attendance System
-              </span>
+            <Link to="/" className="flex items-center gap-3">
+              <img src="/rites-logo.jpeg" alt="RITES Logo" className="h-8 w-auto" />
+              <span className="text-xl font-bold text-white tracking-wide">Geo Attendance System</span>
             </Link>
           </div>
 
-          {/* USER ACTIONS */}
           <div className="flex items-center gap-4 text-white">
-
             <div className="hidden sm:flex items-center gap-2 text-sm bg-white/20 px-3 py-1 rounded-full">
               <UserCircle size={18} />
               <span>{user.employee_id}</span>
             </div>
-
           </div>
 
         </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Camera, CheckCircle, AlertTriangle } from 'lucide-react';
+import { MapPin, Camera, CheckCircle, AlertTriangle, RefreshCw, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
@@ -14,6 +14,8 @@ const Attendance = () => {
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
   const [capturedImage, setCapturedImage] = useState(null);
+  const [locationAttempts, setLocationAttempts] = useState(0);
+  const [showImagePreview, setShowImagePreview] = useState(false);
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -45,7 +47,10 @@ const Attendance = () => {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
           };
-          if (setState && isMountedRef.current) setLocation(loc);
+          if (setState && isMountedRef.current) {
+            setLocation(loc);
+            setLocationAttempts(0);
+          }
           resolve(loc);
         },
         () => {
@@ -61,18 +66,24 @@ const Attendance = () => {
 
   useEffect(() => {
     getLocation().catch(() => {
-      // locationError already set inside getLocation
+      if (isMountedRef.current) setLocationAttempts(1);
     });
   }, [getLocation]);
 
   const handleImageCapture = useCallback((blob) => {
     setCapturedImage(blob);
+    setShowImagePreview(true);
   }, []);
 
   // ================= SUBMIT =================
   const handleSubmit = useCallback(async () => {
     if (!capturedImage) {
       setError('Please capture your face image first');
+      return;
+    }
+
+    if (!location) {
+      setError('Unable to get your location. Please enable location services and try again.');
       return;
     }
 
@@ -95,28 +106,27 @@ const Attendance = () => {
       const msgParts = [];
       if (res?.data?.message) msgParts.push(res.data.message);
       if (res?.data?.work_hours) msgParts.push(`Work Hours: ${res.data.work_hours}`);
-      if (res?.data?.warning) msgParts.push(`Warning: ${res.data.warning}`);
+      if (res?.data?.warning) msgParts.push(`⚠️ ${res.data.warning}`);
 
       setMessage(msgParts.join(' | '));
 
       setCapturedImage(null);
+      setShowImagePreview(false);
 
       // refresh visible location
-      getLocation().catch(() => {
-        // ignore; locationError handled
-      });
+      getLocation().catch(() => {});
 
       // Navigate to dashboard after successful attendance marking
       window.setTimeout(() => {
         navigate('/dashboard');
-      }, 2000);
+      }, 2500);
     } catch (err) {
       const detail = err?.response?.data?.detail || 'Attendance marking failed';
       setError(detail);
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [capturedImage, getLocation, navigate]);
+  }, [capturedImage, getLocation, navigate, location]);
 
   if (!user) return null;
 
@@ -141,18 +151,44 @@ const Attendance = () => {
 
         {/* MESSAGE */}
         {message && (
-          <div className="bg-green-50 border border-green-300 text-green-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-green-50 border border-green-300 text-green-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
+          >
             <CheckCircle size={18} />
             <span>{message}</span>
-          </div>
+          </motion.div>
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
+          >
             <AlertTriangle size={18} />
             <span>{error}</span>
-          </div>
+          </motion.div>
         )}
+
+        {/* INFO BOX */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-blue-50 border border-blue-300 rounded-xl p-4 mb-6 flex items-start gap-3"
+        >
+          <Info className="text-blue-600 mt-1 flex-shrink-0" size={20} />
+          <div className="text-sm text-blue-800">
+            <p className="font-semibold mb-1">Instructions:</p>
+            <ul className="list-disc list-inside space-y-1 text-xs">
+              <li>Ensure location services are enabled</li>
+              <li>Position your face clearly in the camera</li>
+              <li>Ensure proper lighting</li>
+              <li>Required shift time: <strong>8:30 hours</strong></li>
+            </ul>
+          </div>
+        </motion.div>
 
         {/* GRID */}
         <div className="grid md:grid-cols-2 gap-6">
@@ -163,25 +199,40 @@ const Attendance = () => {
             className="bg-white rounded-2xl shadow-lg p-6"
           >
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <MapPin className="text-blue-600" /> Location Verification
+              <MapPin className="text-blue-600" size={24} /> Location Verification
             </h2>
 
             {location ? (
               <div className="text-green-600">
-                ✓ Location Captured
-                <p className="text-sm text-gray-500 mt-1">
-                  Lat: {Number(location.latitude).toFixed(6)} | Lng: {Number(location.longitude).toFixed(6)}
-                </p>
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle size={20} className="text-green-500" />
+                  <span className="font-semibold">Location Captured</span>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg text-sm font-mono">
+                  <p className="text-gray-700">Latitude: {Number(location.latitude).toFixed(6)}</p>
+                  <p className="text-gray-700">Longitude: {Number(location.longitude).toFixed(6)}</p>
+                </div>
               </div>
-            ) : (
-              <div className="text-red-600">
-                {locationError || 'Fetching location...'}
+            ) : locationError ? (
+              <div>
+                <div className="text-red-600 mb-3 flex items-center gap-2">
+                  <AlertTriangle size={20} />
+                  <span className="font-semibold">{locationError}</span>
+                </div>
                 <button
-                  onClick={() => getLocation().catch(() => {})}
-                  className="block mt-3 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded-lg text-sm"
+                  onClick={() => {
+                    getLocation().catch(() => setLocationAttempts(prev => prev + 1));
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition"
                 >
+                  <RefreshCw size={16} />
                   Retry Location
                 </button>
+              </div>
+            ) : (
+              <div className="text-gray-600 flex items-center gap-2">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+                <span>Fetching your location...</span>
               </div>
             )}
           </motion.div>
@@ -194,31 +245,75 @@ const Attendance = () => {
             className="bg-white rounded-2xl shadow-lg p-6"
           >
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Camera className="text-purple-600" /> Face Verification
+              <Camera className="text-purple-600" size={24} /> Face Verification
             </h2>
 
             <div className="space-y-4">
               <CameraCapture onCapture={handleImageCapture} buttonText="Capture Face" />
               {capturedImage && (
-                <p className="text-green-600 mt-2">✓ Face image captured successfully</p>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-center gap-2 text-green-600 font-semibold"
+                >
+                  <CheckCircle size={20} className="text-green-500" />
+                  Face image captured successfully
+                </motion.div>
+              )}
+              {capturedImage && showImagePreview && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="bg-gray-100 p-3 rounded-lg"
+                >
+                  <p className="text-xs text-gray-600 mb-2">Preview:</p>
+                  <img 
+                    src={URL.createObjectURL(capturedImage)} 
+                    alt="Captured face"
+                    className="w-full rounded-lg max-h-48 object-cover"
+                  />
+                </motion.div>
               )}
             </div>
           </motion.div>
         </div>
 
         {/* SUBMIT */}
-        <div className="mt-8 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="mt-8 text-center"
+        >
           <button
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!location || !capturedImage || loading}
             className="bg-gradient-to-r from-blue-600 to-green-600
               hover:from-blue-700 hover:to-green-700
-              text-white font-semibold px-8 py-3 rounded-xl shadow-lg
-              disabled:opacity-50 disabled:cursor-not-allowed"
+              text-white font-semibold px-12 py-4 rounded-xl shadow-lg hover:shadow-xl
+              disabled:opacity-50 disabled:cursor-not-allowed transition text-lg
+              flex items-center justify-center gap-2 mx-auto"
           >
-            {loading ? 'Marking Attendance...' : 'Mark Attendance'}
+            {loading ? (
+              <>
+                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                Marking Attendance...
+              </>
+            ) : (
+              <>
+                <CheckCircle size={20} />
+                Mark Attendance
+              </>
+            )}
           </button>
-        </div>
+          
+          {!location && (
+            <p className="text-red-600 text-sm mt-3">Location is required to mark attendance</p>
+          )}
+          {!capturedImage && (
+            <p className="text-red-600 text-sm mt-3">Face image is required to mark attendance</p>
+          )}
+        </motion.div>
       </div>
     </div>
   );

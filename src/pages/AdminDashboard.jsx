@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Download,
   Users,
@@ -9,11 +9,18 @@ import {
   LogOut,
   AlertTriangle,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  CheckCircle,
+  AlertCircle,
+  XCircle,
+  Menu,
+  X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
+import Sidebar from '../components/Sidebar';
+import Toast from '../components/Toast';
 import {
   LineChart,
   Line,
@@ -34,7 +41,9 @@ const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('registrations');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [toast, setToast] = useState({ message: '', type: 'info' });
   const [pendingRegistrations, setPendingRegistrations] = useState([]);
   const [pendingAttendance, setPendingAttendance] = useState([]);
   const [attendanceReport, setAttendanceReport] = useState([]);
@@ -72,11 +81,30 @@ const AdminDashboard = () => {
     end_date: ''
   });
 
+  // Monthly report states
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
+  const [downloading, setDownloading] = useState(false);
+
+  // Daily report state
+  const [dailyReportDate, setDailyReportDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [downloadingDaily, setDownloadingDaily] = useState(false);
+
+  const showToast = (msg, type = 'info') => {
+    setToast({ message: msg, type });
+    setTimeout(() => setToast({ message: '', type: 'info' }), 4000);
+  };
+
+  // Fetch data based on active tab
   useEffect(() => {
     if (activeTab === 'registrations') fetchPendingRegistrations();
     if (activeTab === 'attendance') fetchPendingAttendance();
     if (activeTab === 'employees') fetchEmployees();
     if (activeTab === 'reports') fetchAttendanceReport();
+    if (activeTab === 'dashboard') fetchTodayAttendance();
+    if (activeTab === 'monthly-report') { /* no fetch needed */ }
     if (activeTab === 'settings') fetchAdminProfile();
   }, [activeTab]);
 
@@ -113,6 +141,21 @@ const AdminDashboard = () => {
       setAttendanceReport(res.data.attendance_data || []);
     } catch {
       setError('Failed to fetch attendance report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTodayAttendance = async () => {
+    setLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const res = await api.get('/api/admin/attendance-report', {
+        params: { start_date: today, end_date: today }
+      });
+      setAttendanceReport(res.data.attendance_data || []);
+    } catch {
+      setError('Failed to fetch today attendance');
     } finally {
       setLoading(false);
     }
@@ -234,6 +277,73 @@ const AdminDashboard = () => {
     }
   };
 
+  const downloadMonthlyReport = async () => {
+    setDownloading(true);
+    try {
+      const res = await api.get('/api/admin/monthly-pa-late-report', {
+        params: { year: reportYear, month: reportMonth },
+        responseType: 'blob'
+      });
+
+      // Try to extract filename from content-disposition
+      const disposition = res.headers['content-disposition'] || res.headers['Content-Disposition'];
+      let filename = `monthly_attendance_${reportYear}_${String(reportMonth).padStart(2, '0')}.xlsx`;
+      if (disposition) {
+        const match = /filename\*=UTF-8''(.+)$/.exec(disposition) || /filename="?([^";]+)"?/.exec(disposition);
+        if (match && match[1]) filename = decodeURIComponent(match[1]);
+      }
+
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      showToast('Monthly report downloaded successfully', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to download monthly report', 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const downloadDailyReport = async () => {
+    setDownloadingDaily(true);
+    try {
+      const res = await api.get('/api/admin/daily-attendance-report', {
+        params: { date: dailyReportDate },
+        responseType: 'blob'
+      });
+
+      const disposition = res.headers['content-disposition'] || res.headers['Content-Disposition'];
+      let filename = `daily_attendance_${dailyReportDate}.xlsx`;
+      if (disposition) {
+        const match = /filename\*=UTF-8''(.+)$/.exec(disposition) || /filename="?([^";]+)"?/.exec(disposition);
+        if (match && match[1]) filename = decodeURIComponent(match[1]);
+      }
+
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      showToast('Daily report downloaded successfully', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to download daily report', 'error');
+    } finally {
+      setDownloadingDaily(false);
+    }
+  };
+
   const changePassword = async () => {
     if (passwordForm.new_password !== passwordForm.confirm_password) {
       setError('New passwords do not match');
@@ -352,63 +462,238 @@ const AdminDashboard = () => {
 
   if (!user) return null;
 
+  const handleSidebarChange = (key) => {
+    if (key === 'logout') {
+      logout();
+      navigate('/admin/login');
+    } else {
+      setActiveTab(key);
+      if (window.innerWidth < 768) setSidebarOpen(false);
+    }
+  };
+
+  // StatCard Component
+  const StatCard = ({ icon: Icon, label, value, color, trend }) => (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -5 }}
+      className={`bg-gradient-to-br ${color} rounded-2xl shadow-lg p-6 text-white relative overflow-hidden group cursor-pointer`}
+    >
+      <div className="absolute inset-0 bg-white/5 group-hover:bg-white/10 transition" />
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm font-medium opacity-90">{label}</p>
+          <Icon className="opacity-50 group-hover:opacity-100 transition" size={24} />
+        </div>
+        <p className="text-4xl font-bold">{value}</p>
+        {trend && <p className="text-xs mt-2 opacity-75">{trend}</p>}
+      </div>
+    </motion.div>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       <Navbar />
 
-      <div className="max-w-7xl mx-auto p-6">
+      <div className="flex">
+        {/* Sidebar */}
+        <AnimatePresence>
+          {sidebarOpen && (
+            <motion.div
+              initial={{ x: -256 }}
+              animate={{ x: 0 }}
+              exit={{ x: -256 }}
+              className="hidden md:block fixed left-0 top-[72px] w-64 h-[calc(100vh-72px)] z-40"
+            >
+              <Sidebar 
+                active={activeTab}
+                onChange={handleSidebarChange}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* HEADER */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-lg p-6 mb-6"
-        >
-          <div className="flex flex-col md:flex-row justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">
-                Admin Dashboard
-              </h1>
-              <p className="text-gray-600">Welcome, {user.name}</p>
-            </div>
+        {/* Mobile Sidebar Overlay */}
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden fixed inset-0 top-[72px] bg-black/50 z-30"
+          />
+        )}
 
-            <div className="flex gap-3">
-              {activeTab === 'reports' && (
-                <button
-                  onClick={exportToCSV}
-                  className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
-                >
-                  <Download size={18} className="mr-2" />
-                  Export CSV
-                </button>
-              )}
+        {/* Main Content */}
+        <div className={`flex-1 ${sidebarOpen && 'md:ml-64'} transition-all duration-300`}>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="p-6 md:p-8"
+          >
+            {/* Mobile Sidebar Toggle */}
+            <div className="md:hidden mb-6">
               <button
-                onClick={() => { logout(); navigate('/admin/login'); }}
-                className="flex items-center border border-red-300 text-red-600 px-4 py-2 rounded-lg hover:bg-red-50"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 bg-white rounded-lg shadow hover:shadow-md transition"
               >
-                <LogOut size={18} className="mr-2" />
-                Logout
+                {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
               </button>
             </div>
+
+            {/* Dashboard Home */}
+            {activeTab === 'dashboard' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="mb-8">
+                  <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome, {user.name}</h1>
+                  <p className="text-gray-600">Here's what's happening in your attendance system today.</p>
+                </div>
+
+                {/* Stat Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <StatCard 
+                    icon={Users}
+                    label="Total Employees"
+                    value={employees.length}
+                    color="from-blue-500 to-blue-600"
+                  />
+                  <StatCard
+                    icon={CheckCircle}
+                    label="Present Today"
+                    value={attendanceReport.filter(r =>
+                      r.check_in_time && new Date(r.check_in_time).toDateString() === new Date().toDateString()
+                    ).length}
+                    color="from-green-500 to-green-600"
+                  />
+                  <StatCard
+                    icon={AlertCircle}
+                    label="Late Today"
+                    value={getLateAttendanceAlerts().filter(r =>
+                      new Date(r.check_in_time).toDateString() === new Date().toDateString()
+                    ).length}
+                    color="from-orange-500 to-orange-600"
+                  />
+                  <StatCard
+                    icon={XCircle}
+                    label="Pending Approvals"
+                    value={pendingAttendance.length}
+                    color="from-red-500 to-red-600"
+                  />
+                </div>
+
+                {/* Daily Report Download */}
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-2xl p-6 shadow-md mb-8"
+                >
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-purple-600" />
+                    Quick Daily Report
+                  </h3>
+                  <p className="text-gray-600 text-sm mb-4">Download attendance report for any specific date</p>
+                  <div className="flex flex-col sm:flex-row gap-4 items-end">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Select Date
+                      </label>
+                      <input
+                        type="date"
+                        value={dailyReportDate}
+                        onChange={(e) => setDailyReportDate(e.target.value)}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      />
+                    </div>
+                    <button
+                      onClick={downloadDailyReport}
+                      disabled={downloadingDaily}
+                      className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-6 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 disabled:cursor-not-allowed"
+                    >
+                      <Download className={`w-4 h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
+                      {downloadingDaily ? 'Downloading...' : 'Download'}
+                    </button>
+                  </div>
+                </motion.div>
+
+                {/* Quick Actions */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <motion.div
+                    whileHover={{ y: -5 }}
+                    className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 cursor-pointer"
+                    onClick={() => setActiveTab('registrations')}
+                  >
+                    <Users className="text-blue-600 mb-3" size={32} />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Pending Registrations</h3>
+                    <p className="text-gray-600 text-sm mb-4">Review and approve new employee registrations</p>
+                    <div className="inline-block px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium">
+                      {pendingRegistrations.length} pending
+                    </div>
+                  </motion.div>
+
+                  <motion.div
+                    whileHover={{ y: -5 }}
+                    className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 cursor-pointer"
+                    onClick={() => setActiveTab('attendance')}
+                  >
+                    <Calendar className="text-green-600 mb-3" size={32} />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Attendance Approvals</h3>
+                    <p className="text-gray-600 text-sm mb-4">Approve pending attendance records</p>
+                    <div className="inline-block px-4 py-2 bg-green-50 text-green-600 rounded-lg text-sm font-medium">
+                      {pendingAttendance.length} pending
+                    </div>
+                  </motion.div>
+                </div>
+              </motion.div>
+            )}
+
+        {/* ================= MONTHLY REPORT ================= */}
+        {activeTab === 'monthly-report' && (
+          <div className="bg-white rounded-2xl shadow p-6 mb-6">
+            <h3 className="text-xl font-semibold mb-4">Monthly Attendance Report</h3>
+            <div className="flex gap-3 items-center flex-wrap">
+              <input
+                type="number"
+                min="2000"
+                max="2099"
+                value={reportYear}
+                onChange={(e) => setReportYear(Number(e.target.value))}
+                className="border p-2 rounded w-32"
+                aria-label="Year"
+              />
+
+              <select
+                value={reportMonth}
+                onChange={(e) => setReportMonth(Number(e.target.value))}
+                className="border p-2 rounded"
+                aria-label="Month"
+              >
+                <option value={1}>January</option>
+                <option value={2}>February</option>
+                <option value={3}>March</option>
+                <option value={4}>April</option>
+                <option value={5}>May</option>
+                <option value={6}>June</option>
+                <option value={7}>July</option>
+                <option value={8}>August</option>
+                <option value={9}>September</option>
+                <option value={10}>October</option>
+                <option value={11}>November</option>
+                <option value={12}>December</option>
+              </select>
+
+              <button
+                onClick={downloadMonthlyReport}
+                disabled={downloading}
+                className="bg-blue-600 text-white px-4 py-2 rounded"
+              >
+                {downloading ? 'Downloading...' : 'Download Monthly Report'}
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mt-3">Select Year and Month then click Download to retrieve the Excel file.</p>
           </div>
-        </motion.div>
-
-        {/* TABS */}
-        <div className="flex gap-4 mb-6">
-          {['registrations', 'attendance', 'employees', 'reports', 'settings'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-2 rounded-xl font-medium transition
-                ${activeTab === tab
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white shadow text-gray-600 hover:bg-gray-50'}`}
-            >
-              {tab.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
+        )}
         {/* STATS */}
         {activeTab === 'reports' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -492,45 +777,87 @@ const AdminDashboard = () => {
 
         {/* ================= ATTENDANCE ================= */}
         {activeTab === 'attendance' && (
-          <div className="bg-white rounded-2xl shadow overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
-                <tr>
-                  <th className="p-4">Emp ID</th>
-                  <th className="p-4">Name</th>
-                  <th className="p-4">Check-in</th>
-                  <th className="p-4">Check-out</th>
-                  <th className="p-4">Status</th>
-                  <th className="p-4">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pendingAttendance.map(att => (
-                  <tr key={att.id} className="border-t hover:bg-gray-50">
-                    <td className="p-4">{att.employee_id}</td>
-                    <td className="p-4">{att.name}</td>
-                    <td className="p-4">{new Date(att.check_in_time).toLocaleString()}</td>
-                    <td className="p-4">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
-                    <td className="p-4">{att.system_status}</td>
-                    <td className="p-4 space-x-2">
-                      <button
-                        onClick={() => handleAttendanceAction(att.id, 'approved')}
-                        className="bg-green-500 text-white px-3 py-1 rounded"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleAttendanceAction(att.id, 'rejected')}
-                        className="bg-red-500 text-white px-3 py-1 rounded"
-                      >
-                        Reject
-                      </button>
-                    </td>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+          >
+            {/* Daily Report Download Section */}
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+              className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-md"
+            >
+              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-green-600" />
+                Daily Attendance Report
+              </h3>
+              <div className="flex flex-col sm:flex-row gap-4 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Date
+                  </label>
+                  <input
+                    type="date"
+                    value={dailyReportDate}
+                    onChange={(e) => setDailyReportDate(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+                <button
+                  onClick={downloadDailyReport}
+                  disabled={downloadingDaily}
+                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-6 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 disabled:cursor-not-allowed"
+                >
+                  <Download className={`w-4 h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
+                  {downloadingDaily ? 'Downloading...' : 'Download Daily Report'}
+                </button>
+              </div>
+            </motion.div>
+
+            {/* Pending Attendance Table */}
+            <div className="bg-white rounded-2xl shadow overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
+                  <tr>
+                    <th className="p-4">Emp ID</th>
+                    <th className="p-4">Name</th>
+                    <th className="p-4">Check-in</th>
+                    <th className="p-4">Check-out</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {pendingAttendance.map(att => (
+                    <tr key={att.id} className="border-t hover:bg-gray-50">
+                      <td className="p-4">{att.employee_id}</td>
+                      <td className="p-4">{att.name}</td>
+                      <td className="p-4">{new Date(att.check_in_time).toLocaleString()}</td>
+                      <td className="p-4">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                      <td className="p-4">{att.system_status}</td>
+                      <td className="p-4 space-x-2">
+                        <button
+                          onClick={() => handleAttendanceAction(att.id, 'approved')}
+                          className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 transition-colors"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => handleAttendanceAction(att.id, 'rejected')}
+                          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
         )}
 
         {/* ================= EMPLOYEES ================= */}
@@ -925,17 +1252,39 @@ const AdminDashboard = () => {
                   className="border rounded-lg p-2"
                 />
               </div>
-              <button
+              <motion.button
                 onClick={changePassword}
                 className="mt-4 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
               >
                 Change Password
-              </button>
+              </motion.button>
             </motion.div>
           </div>
         )}
 
+            {error && <motion.div className="mt-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</motion.div>}
+          </motion.div>
+        </div>
       </div>
+
+      {/* Password Reset Modal */}
+      <AnimatePresence>
+        {resetPasswordEmployee && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md border border-gray-100">
+              <h3 className="text-2xl font-semibold mb-4 text-gray-900">Reset Password</h3>
+              <p className="text-gray-600 mb-4">for {resetPasswordEmployee.name}</p>
+              <input type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent mb-4" />
+              <div className="flex gap-3">
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={resetPassword} className="flex-1 px-4 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-semibold rounded-lg hover:shadow-lg transition">Reset Password</motion.button>
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => { setResetPasswordEmployee(null); setNewPassword(''); }} className="flex-1 px-4 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:shadow-lg transition">Cancel</motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: 'info' })} />
     </div>
   );
 };
