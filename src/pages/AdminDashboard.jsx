@@ -497,14 +497,22 @@ const AdminDashboard = () => {
       <Navbar />
 
       <div className="flex">
-        {/* Sidebar */}
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block fixed left-0 top-[72px] w-64 h-[calc(100vh-72px)] z-40">
+          <Sidebar 
+            active={activeTab}
+            onChange={handleSidebarChange}
+          />
+        </div>
+
+        {/* Mobile Sidebar */}
         <AnimatePresence>
           {sidebarOpen && (
             <motion.div
               initial={{ x: -256 }}
               animate={{ x: 0 }}
               exit={{ x: -256 }}
-              className="hidden md:block fixed left-0 top-[72px] w-64 h-[calc(100vh-72px)] z-40"
+              className="md:hidden fixed left-0 top-[72px] w-64 h-[calc(100vh-72px)] z-40"
             >
               <Sidebar 
                 active={activeTab}
@@ -526,19 +534,20 @@ const AdminDashboard = () => {
         )}
 
         {/* Main Content */}
-        <div className={`flex-1 ${sidebarOpen && 'md:ml-64'} transition-all duration-300`}>
+        <div className={`flex-1 md:ml-64 transition-all duration-300 w-full`}>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="p-6 md:p-8"
+            className="p-3 sm:p-4 md:p-6"
           >
             {/* Mobile Sidebar Toggle */}
-            <div className="md:hidden mb-6">
+            <div className="md:hidden mb-4 sm:mb-6 flex items-center justify-between">
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900">Admin</h1>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 bg-white rounded-lg shadow hover:shadow-md transition"
+                className="p-2 bg-blue-600 text-white rounded-lg shadow hover:shadow-md transition"
               >
-                {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+                {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
               </button>
             </div>
 
@@ -551,7 +560,7 @@ const AdminDashboard = () => {
                 </div>
 
                 {/* Stat Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-6 mb-6 sm:mb-8">
                   <StatCard 
                     icon={Users}
                     label="Total Employees"
@@ -594,31 +603,31 @@ const AdminDashboard = () => {
                     Quick Daily Report
                   </h3>
                   <p className="text-gray-600 text-sm mb-4">Download attendance report for any specific date</p>
-                  <div className="flex flex-col sm:flex-row gap-4 items-end">
+                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-stretch sm:items-end w-full">
                     <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Select Date
                       </label>
                       <input
                         type="date"
                         value={dailyReportDate}
                         onChange={(e) => setDailyReportDate(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-xs sm:text-sm"
                       />
                     </div>
                     <button
                       onClick={downloadDailyReport}
                       disabled={downloadingDaily}
-                      className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-6 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 disabled:cursor-not-allowed"
+                      className="w-full sm:w-auto bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-3 sm:px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all duration-200 disabled:cursor-not-allowed text-xs sm:text-sm whitespace-nowrap"
                     >
-                      <Download className={`w-4 h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
-                      {downloadingDaily ? 'Downloading...' : 'Download'}
+                      <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
+                      <span>{downloadingDaily ? 'Downloading...' : 'Download'}</span>
                     </button>
                   </div>
                 </motion.div>
 
                 {/* Quick Actions */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                   <motion.div
                     whileHover={{ y: -5 }}
                     className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 cursor-pointer"
@@ -722,15 +731,15 @@ const AdminDashboard = () => {
 
         {/* ================= REGISTRATIONS ================= */}
         {activeTab === 'registrations' && (
-          <div className="grid gap-6">
+          <div className="grid gap-3 sm:gap-4 md:gap-6">
             {pendingRegistrations.map(reg => (
               <motion.div
                 key={reg.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl shadow p-6"
+                className="bg-white rounded-2xl shadow p-4 sm:p-6"
               >
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <p><b>Name:</b> {reg.name}</p>
                     <p><b>Employee ID:</b> {reg.employee_id}</p>
@@ -741,21 +750,21 @@ const AdminDashboard = () => {
                   <div className="space-y-2">
                     <input
                       placeholder="Location Name"
-                      className="w-full border rounded-lg p-2"
+                      className="w-full border rounded-lg p-2 text-sm"
                       onChange={e => reg.baseLocationName = e.target.value}
                     />
                     <input
                       placeholder="Latitude"
                       type="number"
                       step="any"
-                      className="w-full border rounded-lg p-2"
+                      className="w-full border rounded-lg p-2 text-sm"
                       onChange={e => reg.baseLocationLat = e.target.value}
                     />
                     <input
                       placeholder="Longitude"
                       type="number"
                       step="any"
-                      className="w-full border rounded-lg p-2"
+                      className="w-full border rounded-lg p-2 text-sm"
                       onChange={e => reg.baseLocationLon = e.target.value}
                     />
                     <button
@@ -764,7 +773,7 @@ const AdminDashboard = () => {
                         lon: reg.baseLocationLon,
                         name: reg.baseLocationName
                       })}
-                      className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700"
+                      className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 text-sm font-medium"
                     >
                       Approve
                     </button>
@@ -818,39 +827,41 @@ const AdminDashboard = () => {
             </motion.div>
 
             {/* Pending Attendance Table */}
-            <div className="bg-white rounded-2xl shadow overflow-x-auto">
-              <table className="w-full">
+            <div className="bg-white rounded-2xl shadow-lg overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
+              <table className="w-full min-w-max text-sm sm:text-base">
                 <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
                   <tr>
-                    <th className="p-4">Emp ID</th>
-                    <th className="p-4">Name</th>
-                    <th className="p-4">Check-in</th>
-                    <th className="p-4">Check-out</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4">Action</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Emp ID</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Name</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Check-in</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Check-out</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Status</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pendingAttendance.map(att => (
                     <tr key={att.id} className="border-t hover:bg-gray-50">
-                      <td className="p-4">{att.employee_id}</td>
-                      <td className="p-4">{att.name}</td>
-                      <td className="p-4">{new Date(att.check_in_time).toLocaleString()}</td>
-                      <td className="p-4">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
-                      <td className="p-4">{att.system_status}</td>
-                      <td className="p-4 space-x-2">
-                        <button
-                          onClick={() => handleAttendanceAction(att.id, 'approved')}
-                          className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleAttendanceAction(att.id, 'rejected')}
-                          className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition-colors"
-                        >
-                          Reject
-                        </button>
+                      <td className="p-2 sm:p-4">{att.employee_id}</td>
+                      <td className="p-2 sm:p-4">{att.name}</td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{new Date(att.check_in_time).toLocaleString()}</td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                      <td className="p-2 sm:p-4"><span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full text-xs">{att.system_status}</span></td>
+                      <td className="p-2 sm:p-4">
+                        <div className="flex gap-1 flex-wrap">
+                          <button
+                            onClick={() => handleAttendanceAction(att.id, 'approved')}
+                            className="bg-green-500 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-green-600 transition-colors whitespace-nowrap"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleAttendanceAction(att.id, 'rejected')}
+                            className="bg-red-500 text-white px-2 sm:px-3 py-1 rounded text-xs sm:text-sm hover:bg-red-600 transition-colors whitespace-nowrap"
+                          >
+                            Reject
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -862,67 +873,67 @@ const AdminDashboard = () => {
 
         {/* ================= EMPLOYEES ================= */}
         {activeTab === 'employees' && (
-          <div className="bg-white rounded-2xl shadow overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white">
+          <div className="bg-white rounded-2xl shadow-lg overflow-x-auto">
+            <table className="w-full min-w-max text-sm sm:text-base">
+              <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
                 <tr>
-                  <th className="p-4">Emp ID</th>
-                  <th className="p-4">Name</th>
-                  <th className="p-4">Email</th>
-                  <th className="p-4">Mobile</th>
-                  <th className="p-4">Base Location</th>
-                  <th className="p-4">Action</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Emp ID</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Name</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Email</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Mobile</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Base Location</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {employees.map(emp => (
                   <tr key={emp.id} className="border-t hover:bg-gray-50">
-                    <td className="p-4">{emp.employee_id}</td>
-                    <td className="p-4">
+                    <td className="p-2 sm:p-4 text-xs sm:text-sm">{emp.employee_id}</td>
+                    <td className="p-2 sm:p-4">
                       {editingEmployee === emp.id ? (
                         <input
                           type="text"
                           value={editForm.name}
                           onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                          className="w-full border rounded p-1"
+                          className="w-full border rounded p-1 text-xs sm:text-sm"
                         />
                       ) : (
-                        emp.name
+                        <span className="text-xs sm:text-sm">{emp.name}</span>
                       )}
                     </td>
-                    <td className="p-4">
+                    <td className="p-2 sm:p-4">
                       {editingEmployee === emp.id ? (
                         <input
                           type="email"
                           value={editForm.email}
                           onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                          className="w-full border rounded p-1"
+                          className="w-full border rounded p-1 text-xs sm:text-sm"
                         />
                       ) : (
-                        emp.email
+                        <span className="text-xs sm:text-sm truncate block">{emp.email}</span>
                       )}
                     </td>
-                    <td className="p-4">
+                    <td className="p-2 sm:p-4">
                       {editingEmployee === emp.id ? (
                         <input
                           type="text"
                           value={editForm.mobile_number}
                           onChange={(e) => setEditForm({ ...editForm, mobile_number: e.target.value })}
-                          className="w-full border rounded p-1"
+                          className="w-full border rounded p-1 text-xs sm:text-sm"
                         />
                       ) : (
-                        emp.mobile_number
+                        <span className="text-xs sm:text-sm">{emp.mobile_number}</span>
                       )}
                     </td>
-                    <td className="p-4">
+                    <td className="p-2 sm:p-4">
                       {editingEmployee === emp.id ? (
-                        <div className="space-y-1">
+                        <div className="space-y-1 flex flex-col">
                           <input
                             type="text"
                             placeholder="Location Name"
                             value={editForm.base_location_name}
                             onChange={(e) => setEditForm({ ...editForm, base_location_name: e.target.value })}
-                            className="w-full border rounded p-1 text-sm"
+                            className="w-full border rounded p-1 text-xs sm:text-sm"
                           />
                           <input
                             type="number"
@@ -930,7 +941,7 @@ const AdminDashboard = () => {
                             placeholder="Lat"
                             value={editForm.base_location_lat}
                             onChange={(e) => setEditForm({ ...editForm, base_location_lat: e.target.value })}
-                            className="w-full border rounded p-1 text-sm"
+                            className="w-full border rounded p-1 text-xs sm:text-sm"
                           />
                           <input
                             type="number"
@@ -938,7 +949,7 @@ const AdminDashboard = () => {
                             placeholder="Lon"
                             value={editForm.base_location_lon}
                             onChange={(e) => setEditForm({ ...editForm, base_location_lon: e.target.value })}
-                            className="w-full border rounded p-1 text-sm"
+                            className="w-full border rounded p-1 text-xs sm:text-sm"
                           />
                         </div>
                       ) : (
@@ -992,8 +1003,8 @@ const AdminDashboard = () => {
 
         {/* RESET PASSWORD MODAL */}
         {resetPasswordEmployee && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-lg p-5 w-full max-w-md max-h-screen overflow-y-auto">
               <h3 className="text-xl font-semibold mb-4">Reset Password for {resetPasswordEmployee.name}</h3>
               <input
                 type="password"
@@ -1060,10 +1071,10 @@ const AdminDashboard = () => {
                 </button>
               </div>
 
-              <div className="flex gap-3 flex-wrap">
-                <input className="border p-2 rounded" placeholder="Employee ID"
+              <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
+                <input className="border p-2 rounded text-sm" placeholder="Employee ID"
                   onChange={e => setFilters({ ...filters, employee_id: e.target.value })} />
-                <select className="border p-2 rounded"
+                <select className="border p-2 rounded text-sm"
                   onChange={e => setFilters({ ...filters, shift: e.target.value })}>
                   <option value="">All Shifts</option>
                   <option value="A">A</option>
@@ -1081,11 +1092,11 @@ const AdminDashboard = () => {
                   <option value="21:00-05:30">21:00-05:30</option>
                   <option value="22:00-06:30">22:00-06:30</option>
                 </select>
-                <input type="date" className="border p-2 rounded"
+                <input type="date" className="border p-2 rounded text-sm"
                   onChange={e => setFilters({ ...filters, start_date: e.target.value })} />
-                <input type="date" className="border p-2 rounded"
+                <input type="date" className="border p-2 rounded text-sm"
                   onChange={e => setFilters({ ...filters, end_date: e.target.value })} />
-                <button onClick={fetchAttendanceReport} className="bg-blue-600 text-white px-4 rounded">
+                <button onClick={fetchAttendanceReport} className="bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium col-span-1 xs:col-span-2 sm:col-span-1 whitespace-nowrap">
                   Filter
                 </button>
               </div>
