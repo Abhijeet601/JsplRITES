@@ -8,6 +8,7 @@ const CameraCapture = ({ onCapture, buttonText = 'Capture Image' }) => {
   const [stream, setStream] = useState(null);
   const [error, setError] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
   const startCamera = useCallback(async () => {
     try {
@@ -33,26 +34,43 @@ const CameraCapture = ({ onCapture, buttonText = 'Capture Image' }) => {
       setIsStreaming(false);
     }
   }, [stream]);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
 
-  const captureImage = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const startRecording = useCallback(() => {
+    if (!stream) return;
+    chunksRef.current = [];
+    try {
+      const options = { mimeType: 'video/webm;codecs=vp9' };
+      const mr = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mr;
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: chunksRef.current[0]?.type || 'video/webm' });
+        if (onCapture) onCapture(blob);
+        chunksRef.current = [];
+        setIsRecording(false);
+      };
 
-    canvas.toBlob(
-      (blob) => {
-        if (blob && onCapture) onCapture(blob);
-      },
-      'image/jpeg',
-      0.8
-    );
-  }, [onCapture]);
+      mr.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Recording start error:', err);
+      setError('Recording is not supported in this browser');
+    }
+  }, [stream, onCapture]);
+
+  const stopRecording = useCallback(() => {
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== 'inactive') {
+      mr.stop();
+      mediaRecorderRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     return () => {

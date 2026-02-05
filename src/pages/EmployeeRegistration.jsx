@@ -106,7 +106,9 @@ const EmployeeRegistration = () => {
   };
 
   const handleVideoCapture = (blob) => {
-    setFaceVideo(new File([blob], 'face_capture.mp4', { type: 'video/mp4' }));
+    const ext = (blob && blob.type && blob.type.includes('webm')) ? 'webm' : (blob && blob.type && blob.type.split('/')[1]) || 'webm';
+    const filename = `face_capture.${ext}`;
+    setFaceVideo(new File([blob], filename, { type: blob.type || 'video/webm' }));
   };
 
   const handleSubmit = async (e) => {
@@ -466,7 +468,7 @@ const EmployeeRegistration = () => {
                 {/* FACE VIDEO */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Face Video (Required)
+                    Face Image (Required)
                   </label>
                   <CameraCapture onCapture={handleVideoCapture} buttonText="Record Face Video" />
                   <input

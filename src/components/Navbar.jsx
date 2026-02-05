@@ -30,7 +30,10 @@ const Navbar = () => {
             </button>
             <Link to="/" className="flex items-center gap-3">
               <img src="/rites-logo.jpeg" alt="RITES Logo" className="h-8 w-auto" />
-              <span className="text-xl font-bold text-white tracking-wide">Geo Attendance System</span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-lg font-semibold text-white">SmartPresence</span>
+                <span className="text-xs text-white/90">Face verification · Geo-fencing · Attendance reports · Admin approvals</span>
+              </div>
             </Link>
           </div>
 
