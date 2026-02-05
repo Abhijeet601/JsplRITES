@@ -72,6 +72,24 @@ const CameraCapture = ({ onCapture, buttonText = 'Capture Image' }) => {
     }
   }, []);
 
+  const captureImage = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob && onCapture) {
+        onCapture(blob);
+      }
+    }, 'image/jpeg', 0.8);
+  }, [onCapture]);
+
   useEffect(() => {
     return () => {
       stopCamera();
