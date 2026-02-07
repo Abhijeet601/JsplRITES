@@ -16,8 +16,9 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="App">
-          <Routes>
+        <div className="App flex flex-col min-h-screen">
+          <div className="flex-grow">
+            <Routes>
             {/* Public Routes */}
             <Route path="/register" element={<EmployeeRegistration />} />
             <Route path="/login" element={<EmployeeLogin />} />
@@ -70,7 +71,13 @@ function App() {
 
             {/* Fallback: redirect unknown routes */}
             <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
+            </Routes>
+          </div>
+
+          {/* Footer */}
+          <footer className="bg-gray-800 text-white text-center py-4">
+            <p>Developed by Abhijeet Mishra, IT Engineer – CRIO, Bhilai</p>
+          </footer>
         </div>
       </Router>
     </AuthProvider>
