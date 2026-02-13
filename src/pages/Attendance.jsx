@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Camera, CheckCircle, AlertTriangle, RefreshCw, Info } from 'lucide-react';
+import { MapPin, Camera, CheckCircle, AlertTriangle, RefreshCw, Info, Shield, ShieldOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
@@ -16,6 +16,12 @@ const Attendance = () => {
   const [capturedImage, setCapturedImage] = useState(null);
   const [locationAttempts, setLocationAttempts] = useState(0);
   const [showImagePreview, setShowImagePreview] = useState(false);
+  const [permissionLoading, setPermissionLoading] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+
+  // Permission status states: 'pending' | 'requesting' | 'granted' | 'denied'
+  const [locationPermissionStatus, setLocationPermissionStatus] = useState('pending');
+  const [cameraPermissionStatus, setCameraPermissionStatus] = useState('pending');
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -29,6 +35,52 @@ const Attendance = () => {
   }, []);
 
   // ================= LOCATION =================
+  const requestLocationPermission = useCallback(async () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by this browser.');
+      setLocationPermissionStatus('denied');
+      return;
+    }
+
+    setLocationPermissionStatus('requesting');
+    setLocationError('');
+
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000
+        });
+      });
+
+      const loc = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+      setLocation(loc);
+      setLocationAttempts(0);
+      setLocationPermissionStatus('granted');
+    } catch (err) {
+      setLocationError('Unable to retrieve your location. Please enable location services and allow permission.');
+      setLocationPermissionStatus('denied');
+      setLocationAttempts(prev => prev + 1);
+    }
+  }, []);
+
+  // ================= CAMERA =================
+  const requestCameraPermission = useCallback(async () => {
+    setCameraPermissionStatus('requesting');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach(track => track.stop()); // stop immediately
+      setCameraPermissionStatus('granted');
+    } catch (err) {
+      setCameraPermissionStatus('denied');
+    }
+  }, []);
+
   const getLocation = useCallback((setState = true) => {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
@@ -63,12 +115,6 @@ const Attendance = () => {
       );
     });
   }, []);
-
-  useEffect(() => {
-    getLocation().catch(() => {
-      if (isMountedRef.current) setLocationAttempts(1);
-    });
-  }, [getLocation]);
 
   const handleImageCapture = useCallback((blob) => {
     setCapturedImage(blob);
@@ -147,6 +193,159 @@ const Attendance = () => {
           <p className="text-gray-600">
             Employee ID: {user.employee_id} | Shift: {user.shift}
           </p>
+        </motion.div>
+
+        {/* PERMISSIONS SECTION */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-2xl shadow-lg p-6 mb-6"
+        >
+          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <Shield className="text-blue-600" size={24} />
+            Permissions Required
+          </h2>
+          
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Location Permission */}
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${
+                    locationPermissionStatus === 'granted' ? 'bg-green-100' :
+                    locationPermissionStatus === 'denied' ? 'bg-red-100' :
+                    locationPermissionStatus === 'requesting' ? 'bg-yellow-100' :
+                    'bg-gray-200'
+                  }`}>
+                    {locationPermissionStatus === 'granted' ? (
+                      <Shield className="text-green-600" size={24} />
+                    ) : locationPermissionStatus === 'denied' ? (
+                      <ShieldOff className="text-red-600" size={24} />
+                    ) : locationPermissionStatus === 'requesting' ? (
+                      <MapPin className="text-yellow-600 animate-pulse" size={24} />
+                    ) : (
+                      <MapPin className="text-gray-600" size={24} />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-800">Location Permission</h3>
+                    <p className={`text-sm ${
+                      locationPermissionStatus === 'granted' ? 'text-green-600' :
+                      locationPermissionStatus === 'denied' ? 'text-red-600' :
+                      locationPermissionStatus === 'requesting' ? 'text-yellow-600' :
+                      'text-gray-500'
+                    }`}>
+                      {locationPermissionStatus === 'granted' ? 'Granted' :
+                       locationPermissionStatus === 'denied' ? 'Denied' :
+                       locationPermissionStatus === 'requesting' ? 'Requesting...' :
+                       'Not Granted'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={requestLocationPermission}
+                disabled={locationPermissionStatus === 'requesting' || locationPermissionStatus === 'granted'}
+                className={`w-full py-2.5 px-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${
+                  locationPermissionStatus === 'granted' 
+                    ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                    : locationPermissionStatus === 'denied'
+                    ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                    : locationPermissionStatus === 'requesting'
+                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 cursor-wait'
+                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+                }`}
+              >
+                {locationPermissionStatus === 'granted' ? (
+                  <>
+                    <CheckCircle size={18} />
+                    Location Enabled
+                  </>
+                ) : locationPermissionStatus === 'requesting' ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700" />
+                    Requesting...
+                  </>
+                ) : (
+                  <>
+                    <MapPin size={18} />
+                    Enable Location
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Camera Permission */}
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${
+                    cameraPermissionStatus === 'granted' ? 'bg-green-100' :
+                    cameraPermissionStatus === 'denied' ? 'bg-red-100' :
+                    cameraPermissionStatus === 'requesting' ? 'bg-yellow-100' :
+                    'bg-gray-200'
+                  }`}>
+                    {cameraPermissionStatus === 'granted' ? (
+                      <Shield className="text-green-600" size={24} />
+                    ) : cameraPermissionStatus === 'denied' ? (
+                      <ShieldOff className="text-red-600" size={24} />
+                    ) : cameraPermissionStatus === 'requesting' ? (
+                      <Camera className="text-yellow-600 animate-pulse" size={24} />
+                    ) : (
+                      <Camera className="text-gray-600" size={24} />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-800">Camera Permission</h3>
+                    <p className={`text-sm ${
+                      cameraPermissionStatus === 'granted' ? 'text-green-600' :
+                      cameraPermissionStatus === 'denied' ? 'text-red-600' :
+                      cameraPermissionStatus === 'requesting' ? 'text-yellow-600' :
+                      'text-gray-500'
+                    }`}>
+                      {cameraPermissionStatus === 'granted' ? 'Granted' :
+                       cameraPermissionStatus === 'denied' ? 'Denied' :
+                       cameraPermissionStatus === 'requesting' ? 'Requesting...' :
+                       'Not Granted'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <button
+                onClick={requestCameraPermission}
+                disabled={cameraPermissionStatus === 'requesting' || cameraPermissionStatus === 'granted'}
+                className={`w-full py-2.5 px-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${
+                  cameraPermissionStatus === 'granted' 
+                    ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                    : cameraPermissionStatus === 'denied'
+                    ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                    : cameraPermissionStatus === 'requesting'
+                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 cursor-wait'
+                    : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'
+                }`}
+              >
+                {cameraPermissionStatus === 'granted' ? (
+                  <>
+                    <CheckCircle size={18} />
+                    Camera Enabled
+                  </>
+                ) : cameraPermissionStatus === 'requesting' ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700" />
+                    Requesting...
+                  </>
+                ) : (
+                  <>
+                    <Camera size={18} />
+                    Enable Camera
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </motion.div>
 
         {/* MESSAGE */}
