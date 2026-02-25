@@ -5,6 +5,13 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
 
+const normalizeDateFilters = (filters) => {
+  const normalized = { ...filters };
+  if (normalized.start_date && !normalized.end_date) normalized.end_date = normalized.start_date;
+  if (normalized.end_date && !normalized.start_date) normalized.start_date = normalized.end_date;
+  return normalized;
+};
+
 const MyAttendance = () => {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,13 +27,14 @@ const MyAttendance = () => {
     try {
       setLoading(true);
       const params = {};
-      if (filters.start_date) params.start_date = filters.start_date;
-      if (filters.end_date) params.end_date = filters.end_date;
+      const normalizedFilters = normalizeDateFilters(filters);
+      if (normalizedFilters.start_date) params.start_date = normalizedFilters.start_date;
+      if (normalizedFilters.end_date) params.end_date = normalizedFilters.end_date;
 
       const res = await api.get('/api/user/my-attendance', { params });
       setAttendanceRecords(res.data.attendance_records);
-    } catch {
-      setError('Failed to fetch attendance records');
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to fetch attendance records');
     } finally {
       setLoading(false);
     }

@@ -6,6 +6,11 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
 
+const toLocalDateInputValue = (dateObj = new Date()) => {
+  const tzOffsetMs = dateObj.getTimezoneOffset() * 60000;
+  return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
+};
+
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -21,11 +26,13 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchTodayStatus = async () => {
       try {
-        const res = await api.get('/api/user/my-attendance');
+        const today = toLocalDateInputValue();
+        const res = await api.get('/api/user/my-attendance', {
+          params: { start_date: today, end_date: today }
+        });
         if (res.data.attendance_records && res.data.attendance_records.length > 0) {
-          const today = new Date().toISOString().split('T')[0];
           const todayRecord = res.data.attendance_records.find(
-            r => new Date(r.check_in_time).toISOString().split('T')[0] === today
+            r => r.check_in_time && toLocalDateInputValue(new Date(r.check_in_time)) === today
           );
           
           if (todayRecord) {
@@ -53,6 +60,14 @@ const Dashboard = () => {
     };
 
     fetchTodayStatus();
+
+    const timer = setInterval(fetchTodayStatus, 30000);
+    const onFocus = () => fetchTodayStatus();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -128,6 +143,11 @@ const Dashboard = () => {
                 </p>
               </div>
             </div>
+            {todayStatus.warning_message && (
+              <div className="mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-300 text-yellow-800 text-sm">
+                <span className="font-semibold">Warning:</span> {todayStatus.warning_message}
+              </div>
+            )}
           </motion.div>
         )}
 

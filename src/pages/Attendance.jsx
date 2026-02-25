@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Camera, CheckCircle, AlertTriangle, RefreshCw, Info, Shield, ShieldOff } from 'lucide-react';
+import {
+  MapPin,
+  Camera,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw,
+  Info,
+  Shield,
+  Clock3,
+  ArrowRight,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
@@ -10,14 +20,13 @@ import Navbar from '../components/Navbar';
 const Attendance = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [warning, setWarning] = useState('');
   const [error, setError] = useState('');
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
   const [capturedImage, setCapturedImage] = useState(null);
-  const [locationAttempts, setLocationAttempts] = useState(0);
   const [showImagePreview, setShowImagePreview] = useState(false);
-  const [permissionLoading, setPermissionLoading] = useState(false);
-  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState('');
 
   // Permission status states: 'pending' | 'requesting' | 'granted' | 'denied'
   const [locationPermissionStatus, setLocationPermissionStatus] = useState('pending');
@@ -33,6 +42,17 @@ const Attendance = () => {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!capturedImage) {
+      setPreviewUrl('');
+      return;
+    }
+
+    const url = URL.createObjectURL(capturedImage);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [capturedImage]);
 
   // ================= LOCATION =================
   const requestLocationPermission = useCallback(async () => {
@@ -50,7 +70,7 @@ const Attendance = () => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 300000
+          maximumAge: 300000,
         });
       });
 
@@ -59,12 +79,10 @@ const Attendance = () => {
         longitude: position.coords.longitude,
       };
       setLocation(loc);
-      setLocationAttempts(0);
       setLocationPermissionStatus('granted');
     } catch (err) {
       setLocationError('Unable to retrieve your location. Please enable location services and allow permission.');
       setLocationPermissionStatus('denied');
-      setLocationAttempts(prev => prev + 1);
     }
   }, []);
 
@@ -74,7 +92,7 @@ const Attendance = () => {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach(track => track.stop()); // stop immediately
+      stream.getTracks().forEach((track) => track.stop());
       setCameraPermissionStatus('granted');
     } catch (err) {
       setCameraPermissionStatus('denied');
@@ -101,13 +119,14 @@ const Attendance = () => {
           };
           if (setState && isMountedRef.current) {
             setLocation(loc);
-            setLocationAttempts(0);
+            setLocationPermissionStatus('granted');
           }
           resolve(loc);
         },
         () => {
           if (isMountedRef.current) {
             setLocationError('Unable to retrieve your location. Please enable location services.');
+            setLocationPermissionStatus('denied');
           }
           reject(new Error('Location permission / retrieval failed'));
         },
@@ -119,10 +138,12 @@ const Attendance = () => {
   const handleImageCapture = useCallback((blob) => {
     setCapturedImage(blob);
     setShowImagePreview(true);
+    setCameraPermissionStatus('granted');
   }, []);
 
   // ================= SUBMIT =================
   const handleSubmit = useCallback(async () => {
+    setWarning('');
     if (!capturedImage) {
       setError('Please capture your face image first');
       return;
@@ -136,6 +157,7 @@ const Attendance = () => {
     setLoading(true);
     setError('');
     setMessage('');
+    setWarning('');
 
     try {
       const currentLocation = await getLocation(false);
@@ -152,9 +174,9 @@ const Attendance = () => {
       const msgParts = [];
       if (res?.data?.message) msgParts.push(res.data.message);
       if (res?.data?.work_hours) msgParts.push(`Work Hours: ${res.data.work_hours}`);
-      if (res?.data?.warning) msgParts.push(`⚠️ ${res.data.warning}`);
 
       setMessage(msgParts.join(' | '));
+      if (res?.data?.warning) setWarning(res.data.warning);
 
       setCapturedImage(null);
       setShowImagePreview(false);
@@ -168,7 +190,11 @@ const Attendance = () => {
       }, 2500);
     } catch (err) {
       const detail = err?.response?.data?.detail || 'Attendance marking failed';
-      setError(detail);
+      if (detail.toLowerCase().includes('warning')) {
+        setWarning(detail);
+      } else {
+        setError(detail);
+      }
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
@@ -178,84 +204,106 @@ const Attendance = () => {
 
   const canSubmit = !loading && !!capturedImage && !!location;
 
+  const steps = [
+    { label: 'Location captured', done: Boolean(location) },
+    { label: 'Face captured', done: Boolean(capturedImage) },
+    { label: 'Ready to submit', done: canSubmit },
+  ];
+
+  const statusText = (status) => {
+    if (status === 'granted') return 'Granted';
+    if (status === 'denied') return 'Denied';
+    if (status === 'requesting') return 'Requesting...';
+    return 'Not Granted';
+  };
+
+  const statusClass = (status) => {
+    if (status === 'granted') return 'text-emerald-700 bg-emerald-100 border-emerald-200';
+    if (status === 'denied') return 'text-red-700 bg-red-100 border-red-200';
+    if (status === 'requesting') return 'text-amber-700 bg-amber-100 border-amber-200';
+    return 'text-slate-600 bg-slate-100 border-slate-200';
+  };
+
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-cyan-50 to-emerald-50">
       <Navbar />
 
-      <div className="max-w-5xl mx-auto p-6">
-        {/* HEADER */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl shadow-lg p-6 mb-6"
+          className="rounded-3xl border border-cyan-100 bg-white/80 backdrop-blur shadow-xl p-6 sm:p-8 mb-6"
         >
-          <h1 className="text-3xl font-bold text-gray-800">Mark Attendance</h1>
-          <p className="text-gray-600">
-            Employee ID: {user.employee_id} | Shift: {user.shift}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">Mark Attendance</h1>
+              <p className="text-sm text-slate-600 mt-1">
+                Employee ID: <span className="font-semibold">{user.employee_id}</span> | Shift:{' '}
+                <span className="font-semibold">{user.shift}</span>
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-cyan-800 text-sm">
+              <Clock3 size={16} />
+              Required shift time: <span className="font-semibold">8:30 hours</span>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-3 mt-6">
+            {steps.map((step) => (
+              <div
+                key={step.label}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium flex items-center gap-2 ${
+                  step.done
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                }`}
+              >
+                <CheckCircle size={16} className={step.done ? 'text-emerald-600' : 'text-slate-400'} />
+                {step.label}
+              </div>
+            ))}
+          </div>
         </motion.div>
 
-        {/* PERMISSIONS SECTION */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-2xl shadow-lg p-6 mb-6"
+          transition={{ delay: 0.08 }}
+          className="rounded-3xl border border-slate-200 bg-white shadow-lg p-6 mb-6"
         >
-          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <Shield className="text-blue-600" size={24} />
-            Permissions Required
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <Shield className="text-cyan-700" size={22} />
+            Step 1: Grant Permissions
           </h2>
-          
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Location Permission */}
-            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-              <div className="flex items-center justify-between mb-3">
+
+          <div className="grid lg:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${
-                    locationPermissionStatus === 'granted' ? 'bg-green-100' :
-                    locationPermissionStatus === 'denied' ? 'bg-red-100' :
-                    locationPermissionStatus === 'requesting' ? 'bg-yellow-100' :
-                    'bg-gray-200'
-                  }`}>
-                    {locationPermissionStatus === 'granted' ? (
-                      <Shield className="text-green-600" size={24} />
-                    ) : locationPermissionStatus === 'denied' ? (
-                      <ShieldOff className="text-red-600" size={24} />
-                    ) : locationPermissionStatus === 'requesting' ? (
-                      <MapPin className="text-yellow-600 animate-pulse" size={24} />
-                    ) : (
-                      <MapPin className="text-gray-600" size={24} />
-                    )}
+                  <div className="p-2 rounded-xl bg-cyan-100 text-cyan-700">
+                    <MapPin size={20} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-800">Location Permission</h3>
-                    <p className={`text-sm ${
-                      locationPermissionStatus === 'granted' ? 'text-green-600' :
-                      locationPermissionStatus === 'denied' ? 'text-red-600' :
-                      locationPermissionStatus === 'requesting' ? 'text-yellow-600' :
-                      'text-gray-500'
-                    }`}>
-                      {locationPermissionStatus === 'granted' ? 'Granted' :
-                       locationPermissionStatus === 'denied' ? 'Denied' :
-                       locationPermissionStatus === 'requesting' ? 'Requesting...' :
-                       'Not Granted'}
-                    </p>
+                    <p className="font-semibold text-slate-800">Location Access</p>
+                    <p className="text-xs text-slate-500">Needed to verify your workplace location.</p>
                   </div>
                 </div>
+                <span className={`text-xs border px-2 py-1 rounded-full ${statusClass(locationPermissionStatus)}`}>
+                  {statusText(locationPermissionStatus)}
+                </span>
               </div>
-              
+
               <button
                 onClick={requestLocationPermission}
                 disabled={locationPermissionStatus === 'requesting' || locationPermissionStatus === 'granted'}
-                className={`w-full py-2.5 px-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${
-                  locationPermissionStatus === 'granted' 
-                    ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                className={`w-full py-2.5 px-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition ${
+                  locationPermissionStatus === 'granted'
+                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-300 cursor-default'
                     : locationPermissionStatus === 'denied'
                     ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
                     : locationPermissionStatus === 'requesting'
-                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 cursor-wait'
-                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+                    ? 'bg-amber-100 text-amber-700 border border-amber-300 cursor-wait'
+                    : 'bg-cyan-600 text-white hover:bg-cyan-700 shadow'
                 }`}
               >
                 {locationPermissionStatus === 'granted' ? (
@@ -265,7 +313,7 @@ const Attendance = () => {
                   </>
                 ) : locationPermissionStatus === 'requesting' ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700" />
+                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-700" />
                     Requesting...
                   </>
                 ) : (
@@ -277,54 +325,33 @@ const Attendance = () => {
               </button>
             </div>
 
-            {/* Camera Permission */}
-            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-              <div className="flex items-center justify-between mb-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3 mb-4">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${
-                    cameraPermissionStatus === 'granted' ? 'bg-green-100' :
-                    cameraPermissionStatus === 'denied' ? 'bg-red-100' :
-                    cameraPermissionStatus === 'requesting' ? 'bg-yellow-100' :
-                    'bg-gray-200'
-                  }`}>
-                    {cameraPermissionStatus === 'granted' ? (
-                      <Shield className="text-green-600" size={24} />
-                    ) : cameraPermissionStatus === 'denied' ? (
-                      <ShieldOff className="text-red-600" size={24} />
-                    ) : cameraPermissionStatus === 'requesting' ? (
-                      <Camera className="text-yellow-600 animate-pulse" size={24} />
-                    ) : (
-                      <Camera className="text-gray-600" size={24} />
-                    )}
+                  <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+                    <Camera size={20} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-800">Camera Permission</h3>
-                    <p className={`text-sm ${
-                      cameraPermissionStatus === 'granted' ? 'text-green-600' :
-                      cameraPermissionStatus === 'denied' ? 'text-red-600' :
-                      cameraPermissionStatus === 'requesting' ? 'text-yellow-600' :
-                      'text-gray-500'
-                    }`}>
-                      {cameraPermissionStatus === 'granted' ? 'Granted' :
-                       cameraPermissionStatus === 'denied' ? 'Denied' :
-                       cameraPermissionStatus === 'requesting' ? 'Requesting...' :
-                       'Not Granted'}
-                    </p>
+                    <p className="font-semibold text-slate-800">Camera Access</p>
+                    <p className="text-xs text-slate-500">Needed for live face verification.</p>
                   </div>
                 </div>
+                <span className={`text-xs border px-2 py-1 rounded-full ${statusClass(cameraPermissionStatus)}`}>
+                  {statusText(cameraPermissionStatus)}
+                </span>
               </div>
-              
+
               <button
                 onClick={requestCameraPermission}
                 disabled={cameraPermissionStatus === 'requesting' || cameraPermissionStatus === 'granted'}
-                className={`w-full py-2.5 px-4 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${
-                  cameraPermissionStatus === 'granted' 
-                    ? 'bg-green-100 text-green-700 border border-green-300 cursor-default'
+                className={`w-full py-2.5 px-4 rounded-xl font-semibold flex items-center justify-center gap-2 transition ${
+                  cameraPermissionStatus === 'granted'
+                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-300 cursor-default'
                     : cameraPermissionStatus === 'denied'
                     ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
                     : cameraPermissionStatus === 'requesting'
-                    ? 'bg-yellow-100 text-yellow-700 border border-yellow-300 cursor-wait'
-                    : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'
+                    ? 'bg-amber-100 text-amber-700 border border-amber-300 cursor-wait'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow'
                 }`}
               >
                 {cameraPermissionStatus === 'granted' ? (
@@ -334,7 +361,7 @@ const Attendance = () => {
                   </>
                 ) : cameraPermissionStatus === 'requesting' ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-700" />
+                    <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-amber-700" />
                     Requesting...
                   </>
                 ) : (
@@ -348,21 +375,31 @@ const Attendance = () => {
           </div>
         </motion.div>
 
-        {/* MESSAGE */}
         {message && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-green-50 border border-green-300 text-green-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
+            className="bg-emerald-50 border border-emerald-300 text-emerald-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
           >
             <CheckCircle size={18} />
             <span>{message}</span>
           </motion.div>
         )}
 
+        {warning && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-amber-50 border border-amber-300 text-amber-800 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
+          >
+            <AlertTriangle size={18} />
+            <span>{warning}</span>
+          </motion.div>
+        )}
+
         {error && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
           >
@@ -371,147 +408,140 @@ const Attendance = () => {
           </motion.div>
         )}
 
-        {/* INFO BOX */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-blue-50 border border-blue-300 rounded-xl p-4 mb-6 flex items-start gap-3"
+          className="bg-cyan-50 border border-cyan-300 rounded-xl p-4 mb-6 flex items-start gap-3"
         >
-          <Info className="text-blue-600 mt-1 flex-shrink-0" size={20} />
-          <div className="text-sm text-blue-800">
-            <p className="font-semibold mb-1">Instructions:</p>
-            <ul className="list-disc list-inside space-y-1 text-xs">
-              <li>Ensure location services are enabled</li>
-              <li>Position your face clearly in the camera</li>
-              <li>Ensure proper lighting</li>
-              <li>Required shift time: <strong>8:30 hours</strong></li>
-            </ul>
+          <Info className="text-cyan-700 mt-1 flex-shrink-0" size={20} />
+          <div className="text-sm text-cyan-900">
+            <p className="font-semibold mb-1">Before you submit:</p>
+            <p>Keep your face centered, ensure lighting is clear, and wait for both location and face capture to complete.</p>
           </div>
         </motion.div>
 
-        {/* GRID */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* LOCATION CARD */}
+        <div className="grid xl:grid-cols-5 gap-6 items-start">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl shadow-lg p-6"
+            className="xl:col-span-2 bg-white rounded-3xl border border-slate-200 shadow-lg p-6"
           >
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <MapPin className="text-blue-600" size={24} /> Location Verification
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-slate-800">
+              <MapPin className="text-cyan-700" size={22} /> Step 2: Verify Location
             </h2>
 
             {location ? (
-              <div className="text-green-600">
-                <div className="flex items-center gap-2 mb-3">
-                  <CheckCircle size={20} className="text-green-500" />
-                  <span className="font-semibold">Location Captured</span>
+              <div className="text-emerald-700 space-y-3">
+                <div className="flex items-center gap-2 font-semibold">
+                  <CheckCircle size={18} className="text-emerald-600" />
+                  Location captured
                 </div>
-                <div className="bg-green-50 p-4 rounded-lg text-sm font-mono">
-                  <p className="text-gray-700">Latitude: {Number(location.latitude).toFixed(6)}</p>
-                  <p className="text-gray-700">Longitude: {Number(location.longitude).toFixed(6)}</p>
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-sm font-mono">
+                  <p className="text-slate-700">Latitude: {Number(location.latitude).toFixed(6)}</p>
+                  <p className="text-slate-700">Longitude: {Number(location.longitude).toFixed(6)}</p>
                 </div>
+                <button
+                  onClick={() => {
+                    getLocation().catch(() => {});
+                  }}
+                  className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-cyan-300 text-cyan-700 hover:bg-cyan-50"
+                >
+                  <RefreshCw size={14} />
+                  Refresh Location
+                </button>
               </div>
             ) : locationError ? (
               <div>
                 <div className="text-red-600 mb-3 flex items-center gap-2">
-                  <AlertTriangle size={20} />
-                  <span className="font-semibold">{locationError}</span>
+                  <AlertTriangle size={18} />
+                  <span className="font-semibold text-sm">{locationError}</span>
                 </div>
                 <button
                   onClick={() => {
-                    getLocation().catch(() => setLocationAttempts(prev => prev + 1));
+                    getLocation().catch(() => {});
                   }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition"
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition"
                 >
                   <RefreshCw size={16} />
                   Retry Location
                 </button>
               </div>
             ) : (
-              <div className="text-gray-600 flex items-center gap-2">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
-                <span>Fetching your location...</span>
+              <div className="text-slate-600 text-sm rounded-xl border border-slate-200 bg-slate-50 p-4">
+                Enable location permission above, then retry if coordinates do not appear.
               </div>
             )}
           </motion.div>
 
-          {/* FACE VERIFICATION CARD */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white rounded-2xl shadow-lg p-6"
+            transition={{ delay: 0.08 }}
+            className="xl:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-lg p-6"
           >
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Camera className="text-purple-600" size={24} /> Face Verification
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-slate-800">
+              <Camera className="text-emerald-700" size={22} /> Step 3: Face Verification
             </h2>
 
             <div className="space-y-4">
               <CameraCapture onCapture={handleImageCapture} buttonText="Capture Face" />
+
               {capturedImage && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex items-center gap-2 text-green-600 font-semibold"
-                >
-                  <CheckCircle size={20} className="text-green-500" />
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-emerald-700 font-semibold">
+                  <CheckCircle size={18} className="text-emerald-600" />
                   Face image captured successfully
                 </motion.div>
               )}
-              {capturedImage && showImagePreview && (
+
+              {capturedImage && showImagePreview && previewUrl && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="bg-gray-100 p-3 rounded-lg"
+                  className="bg-slate-50 border border-slate-200 p-3 rounded-xl"
                 >
-                  <p className="text-xs text-gray-600 mb-2">Preview:</p>
-                  <img 
-                    src={URL.createObjectURL(capturedImage)} 
-                    alt="Captured face"
-                    className="w-full rounded-lg max-h-48 object-cover"
-                  />
+                  <p className="text-xs text-slate-600 mb-2">Latest capture preview:</p>
+                  <img src={previewUrl} alt="Captured face" className="w-full rounded-lg max-h-56 object-cover" />
                 </motion.div>
               )}
             </div>
           </motion.div>
         </div>
 
-        {/* SUBMIT */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mt-8 text-center"
+          transition={{ delay: 0.15 }}
+          className="mt-8"
         >
-          <button
-            onClick={handleSubmit}
-            disabled={!location || !capturedImage || loading}
-            className="bg-gradient-to-r from-blue-600 to-green-600
-              hover:from-blue-700 hover:to-green-700
-              text-white font-semibold px-12 py-4 rounded-xl shadow-lg hover:shadow-xl
-              disabled:opacity-50 disabled:cursor-not-allowed transition text-lg
-              flex items-center justify-center gap-2 mx-auto"
-          >
-            {loading ? (
-              <>
-                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                Marking Attendance...
-              </>
-            ) : (
-              <>
-                <CheckCircle size={20} />
-                Mark Attendance
-              </>
-            )}
-          </button>
-          
-          {!location && (
-            <p className="text-red-600 text-sm mt-3">Location is required to mark attendance</p>
-          )}
-          {!capturedImage && (
-            <p className="text-red-600 text-sm mt-3">Face image is required to mark attendance</p>
-          )}
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-lg p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="text-sm text-slate-600">
+              {canSubmit ? (
+                <p className="text-emerald-700 font-semibold">All checks complete. You can mark attendance now.</p>
+              ) : (
+                <p>
+                  Complete all three steps to enable submit: permissions, location, and face capture.
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={handleSubmit}
+              disabled={!canSubmit || loading}
+              className="w-full sm:w-auto bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-700 hover:to-emerald-700 text-white font-semibold px-8 py-3 rounded-xl shadow disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                  Marking Attendance...
+                </>
+              ) : (
+                <>
+                  Mark Attendance
+                  <ArrowRight size={18} />
+                </>
+              )}
+            </button>
+          </div>
         </motion.div>
       </div>
     </div>

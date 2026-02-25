@@ -37,6 +37,11 @@ import {
   Cell
 } from 'recharts';
 
+const toLocalDateInputValue = (dateObj = new Date()) => {
+  const tzOffsetMs = dateObj.getTimezoneOffset() * 60000;
+  return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
+};
+
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -77,9 +82,12 @@ const AdminDashboard = () => {
   const [filters, setFilters] = useState({
     employee_id: '',
     shift: '',
-    start_date: '',
-    end_date: ''
+    start_date: toLocalDateInputValue(),
+    end_date: toLocalDateInputValue()
   });
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [attendancePageSize, setAttendancePageSize] = useState(200);
+  const [attendanceTotalRecords, setAttendanceTotalRecords] = useState(0);
 
   // Monthly report states
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
@@ -88,7 +96,7 @@ const AdminDashboard = () => {
 
   // Daily report state
   const [dailyReportDate, setDailyReportDate] = useState(
-    new Date().toISOString().split('T')[0]
+    toLocalDateInputValue()
   );
   const [downloadingDaily, setDownloadingDaily] = useState(false);
 
@@ -100,13 +108,31 @@ const AdminDashboard = () => {
   // Fetch data based on active tab
   useEffect(() => {
     if (activeTab === 'registrations') fetchPendingRegistrations();
-    if (activeTab === 'attendance') fetchPendingAttendance();
+    if (activeTab === 'attendance') {
+      fetchAttendanceReport(1);
+      fetchPendingAttendance();
+    }
     if (activeTab === 'employees') fetchEmployees();
-    if (activeTab === 'reports') fetchAttendanceReport();
+    if (activeTab === 'reports') fetchAttendanceReport(1);
     if (activeTab === 'dashboard') fetchTodayAttendance();
     if (activeTab === 'monthly-report') { /* no fetch needed */ }
     if (activeTab === 'settings') fetchAdminProfile();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'attendance' && activeTab !== 'dashboard') return undefined;
+    const timer = setInterval(() => {
+      if (activeTab === 'dashboard') {
+        fetchTodayAttendance();
+        fetchPendingAttendance();
+      } else if (activeTab === 'attendance') {
+        fetchAttendanceReport(attendancePage);
+        fetchPendingAttendance();
+      }
+    }, 30000);
+
+    return () => clearInterval(timer);
+  }, [activeTab, attendancePage, attendancePageSize, filters]);
 
   const fetchPendingRegistrations = async () => {
     setLoading(true);
@@ -132,13 +158,28 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchAttendanceReport = async () => {
+  const fetchAttendanceReport = async (page = attendancePage, overrides = {}) => {
     setLoading(true);
     try {
       const params = {};
-      Object.entries(filters).forEach(([k, v]) => v && (params[k] = v));
+      const effectiveFilters = overrides.filters ? { ...filters, ...overrides.filters } : filters;
+      const effectivePageSize = overrides.pageSize ?? attendancePageSize;
+      const normalizedFilters = { ...effectiveFilters };
+      if (normalizedFilters.start_date && !normalizedFilters.end_date) {
+        normalizedFilters.end_date = normalizedFilters.start_date;
+      }
+      if (normalizedFilters.end_date && !normalizedFilters.start_date) {
+        normalizedFilters.start_date = normalizedFilters.end_date;
+      }
+
+      Object.entries(normalizedFilters).forEach(([k, v]) => v && (params[k] = v));
+      params.page = page;
+      params.page_size = effectivePageSize;
+
       const res = await api.get('/api/admin/attendance-report', { params });
       setAttendanceReport(res.data.attendance_data || []);
+      setAttendanceTotalRecords(res.data.total_records || 0);
+      setAttendancePage(res.data.page || page);
     } catch {
       setError('Failed to fetch attendance report');
     } finally {
@@ -149,11 +190,14 @@ const AdminDashboard = () => {
   const fetchTodayAttendance = async () => {
     setLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = toLocalDateInputValue();
+      setFilters(prev => ({ ...prev, start_date: today, end_date: today }));
+      setAttendancePage(1);
       const res = await api.get('/api/admin/attendance-report', {
-        params: { start_date: today, end_date: today }
+        params: { start_date: today, end_date: today, page: 1, page_size: attendancePageSize }
       });
       setAttendanceReport(res.data.attendance_data || []);
+      setAttendanceTotalRecords(res.data.total_records || 0);
     } catch {
       setError('Failed to fetch today attendance');
     } finally {
@@ -226,11 +270,18 @@ const AdminDashboard = () => {
   };
 
   const handleAttendanceAction = async (id, status) => {
-    await api.post('/api/admin/approve-attendance', {
-      attendance_id: id,
-      admin_status: status
-    });
-    fetchPendingAttendance();
+    try {
+      await api.post('/api/admin/approve-attendance', {
+        attendance_id: id,
+        admin_status: status
+      });
+      fetchPendingAttendance();
+      fetchAttendanceReport(attendancePage);
+      showToast(`Attendance ${status} successfully`, 'success');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to update attendance status');
+      showToast('Failed to update attendance status', 'error');
+    }
   };
 
   const exportToCSV = () => {
@@ -408,7 +459,7 @@ const AdminDashboard = () => {
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = toLocalDateInputValue(date);
       const dayRecords = attendanceReport.filter(r =>
         r.check_in_time && r.check_in_time.startsWith(dateStr)
       );
@@ -792,41 +843,152 @@ const AdminDashboard = () => {
             transition={{ duration: 0.3 }}
             className="space-y-6"
           >
-            {/* Daily Report Download Section */}
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-2xl p-6 shadow-md"
-            >
-              <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-green-600" />
-                Daily Attendance Report
-              </h3>
-              <div className="flex flex-col sm:flex-row gap-4 items-end">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Date
-                  </label>
-                  <input
-                    type="date"
-                    value={dailyReportDate}
-                    onChange={(e) => setDailyReportDate(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-                <button
-                  onClick={downloadDailyReport}
-                  disabled={downloadingDaily}
-                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-6 py-2 rounded-lg flex items-center gap-2 transition-all duration-200 disabled:cursor-not-allowed"
+            {/* Attendance Filters */}
+            <div className="bg-white rounded-2xl shadow-lg p-4 md:p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                <input
+                  className="border p-2 rounded text-sm"
+                  placeholder="Employee ID"
+                  value={filters.employee_id}
+                  onChange={e => setFilters({ ...filters, employee_id: e.target.value })}
+                />
+                <select
+                  className="border p-2 rounded text-sm"
+                  value={filters.shift}
+                  onChange={e => setFilters({ ...filters, shift: e.target.value })}
                 >
-                  <Download className={`w-4 h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
-                  {downloadingDaily ? 'Downloading...' : 'Download Daily Report'}
+                  <option value="">All Shifts</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="general">General</option>
+                  <option value="01:00-09:30">01:00-09:30</option>
+                  <option value="06:00-14:30">06:00-14:30</option>
+                  <option value="08:00-16:30">08:00-16:30</option>
+                  <option value="09:00-17:30">09:00-17:30</option>
+                  <option value="10:00-18:00">10:00-18:00</option>
+                  <option value="10:00-18:30">10:00-18:30</option>
+                  <option value="14:00-22:30">14:00-22:30</option>
+                  <option value="17:00-01:30">17:00-01:30</option>
+                  <option value="21:00-05:30">21:00-05:30</option>
+                  <option value="22:00-06:30">22:00-06:30</option>
+                </select>
+                <input
+                  type="date"
+                  className="border p-2 rounded text-sm"
+                  value={filters.start_date}
+                  onChange={e => setFilters({ ...filters, start_date: e.target.value })}
+                />
+                <input
+                  type="date"
+                  className="border p-2 rounded text-sm"
+                  value={filters.end_date}
+                  onChange={e => setFilters({ ...filters, end_date: e.target.value })}
+                />
+                <button
+                  onClick={() => fetchAttendanceReport(1)}
+                  className="bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
+                >
+                  Apply Filter
+                </button>
+                <button
+                  onClick={() => {
+                    const today = toLocalDateInputValue();
+                    const nextFilters = { ...filters, start_date: today, end_date: today };
+                    setFilters(nextFilters);
+                    fetchAttendanceReport(1, { filters: nextFilters });
+                  }}
+                  className="bg-green-600 text-white px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
+                >
+                  Today
                 </button>
               </div>
-            </motion.div>
+              <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
+                <span>Total records: {attendanceTotalRecords}</span>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="page-size">Rows:</label>
+                  <select
+                    id="page-size"
+                    className="border p-1 rounded"
+                    value={attendancePageSize}
+                    onChange={(e) => {
+                      const size = Number(e.target.value);
+                      setAttendancePageSize(size);
+                      setAttendancePage(1);
+                      fetchAttendanceReport(1, { pageSize: size });
+                    }}
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                    <option value={500}>500</option>
+                  </select>
+                </div>
+              </div>
+            </div>
 
-            {/* Pending Attendance Table */}
+            {/* Attendance Records Table */}
+            <div className="bg-white rounded-2xl shadow-lg overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
+              <table className="w-full min-w-max text-sm sm:text-base">
+                <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
+                  <tr>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Emp ID</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Name</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Check-in</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Check-out</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Hours</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Shift</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">System</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Admin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-gray-500">Loading attendance records...</td>
+                    </tr>
+                  )}
+                  {!loading && attendanceReport.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-gray-500">No attendance records found for selected filters.</td>
+                    </tr>
+                  )}
+                  {!loading && attendanceReport.map(att => (
+                    <tr key={att.id} className="border-t hover:bg-gray-50">
+                      <td className="p-2 sm:p-4">{att.employee_id}</td>
+                      <td className="p-2 sm:p-4">{att.name}</td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{att.check_in_time ? new Date(att.check_in_time).toLocaleString() : 'N/A'}</td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                      <td className="p-2 sm:p-4">{att.work_hours ?? 'N/A'}</td>
+                      <td className="p-2 sm:p-4">{att.shift || 'N/A'}</td>
+                      <td className="p-2 sm:p-4">{att.system_status || 'N/A'}</td>
+                      <td className="p-2 sm:p-4">{att.admin_status || 'pending'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Attendance Pagination */}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                disabled={attendancePage <= 1 || loading}
+                onClick={() => fetchAttendanceReport(attendancePage - 1)}
+                className="px-3 py-1 rounded border disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <span className="text-sm text-gray-700">Page {attendancePage}</span>
+              <button
+                disabled={attendancePage * attendancePageSize >= attendanceTotalRecords || loading}
+                onClick={() => fetchAttendanceReport(attendancePage + 1)}
+                className="px-3 py-1 rounded border disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+
+            {/* Pending Attendance Approvals */}
             <div className="bg-white rounded-2xl shadow-lg overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
               <table className="w-full min-w-max text-sm sm:text-base">
                 <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
@@ -840,6 +1002,11 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
+                  {!loading && pendingAttendance.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-gray-500">No pending attendance approvals.</td>
+                    </tr>
+                  )}
                   {pendingAttendance.map(att => (
                     <tr key={att.id} className="border-t hover:bg-gray-50">
                       <td className="p-2 sm:p-4">{att.employee_id}</td>
@@ -1041,12 +1208,13 @@ const AdminDashboard = () => {
                   onClick={() => {
                     const today = new Date();
                     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-                    setFilters({
+                    const nextFilters = {
                       ...filters,
-                      start_date: weekAgo.toISOString().split('T')[0],
-                      end_date: today.toISOString().split('T')[0]
-                    });
-                    setTimeout(fetchAttendanceReport, 100);
+                      start_date: toLocalDateInputValue(weekAgo),
+                      end_date: toLocalDateInputValue(today)
+                    };
+                    setFilters(nextFilters);
+                    fetchAttendanceReport(1, { filters: nextFilters });
                   }}
                   className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg transition"
                 >
@@ -1057,12 +1225,13 @@ const AdminDashboard = () => {
                   onClick={() => {
                     const today = new Date();
                     const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate() + 1);
-                    setFilters({
+                    const nextFilters = {
                       ...filters,
-                      start_date: monthAgo.toISOString().split('T')[0],
-                      end_date: today.toISOString().split('T')[0]
-                    });
-                    setTimeout(fetchAttendanceReport, 100);
+                      start_date: toLocalDateInputValue(monthAgo),
+                      end_date: toLocalDateInputValue(today)
+                    };
+                    setFilters(nextFilters);
+                    fetchAttendanceReport(1, { filters: nextFilters });
                   }}
                   className="flex items-center gap-2 bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg transition"
                 >
