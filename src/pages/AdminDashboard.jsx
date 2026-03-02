@@ -37,6 +37,21 @@ import {
   Cell
 } from 'recharts';
 
+const MONTH_OPTIONS = [
+  { value: 1, label: 'January' },
+  { value: 2, label: 'February' },
+  { value: 3, label: 'March' },
+  { value: 4, label: 'April' },
+  { value: 5, label: 'May' },
+  { value: 6, label: 'June' },
+  { value: 7, label: 'July' },
+  { value: 8, label: 'August' },
+  { value: 9, label: 'September' },
+  { value: 10, label: 'October' },
+  { value: 11, label: 'November' },
+  { value: 12, label: 'December' }
+];
+
 const toLocalDateInputValue = (dateObj = new Date()) => {
   const tzOffsetMs = dateObj.getTimezoneOffset() * 60000;
   return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
@@ -99,6 +114,7 @@ const AdminDashboard = () => {
     toLocalDateInputValue()
   );
   const [downloadingDaily, setDownloadingDaily] = useState(false);
+  const selectedMonthLabel = MONTH_OPTIONS.find((m) => m.value === reportMonth)?.label || 'Selected Month';
 
   const showToast = (msg, type = 'info') => {
     setToast({ message: msg, type });
@@ -114,7 +130,12 @@ const AdminDashboard = () => {
     }
     if (activeTab === 'employees') fetchEmployees();
     if (activeTab === 'reports') fetchAttendanceReport(1);
-    if (activeTab === 'dashboard') fetchTodayAttendance();
+    if (activeTab === 'dashboard') {
+      fetchTodayAttendance();
+      fetchPendingAttendance();
+      fetchEmployees();
+      fetchPendingRegistrations();
+    }
     if (activeTab === 'monthly-report') { /* no fetch needed */ }
     if (activeTab === 'settings') fetchAdminProfile();
   }, [activeTab]);
@@ -511,16 +532,43 @@ const AdminDashboard = () => {
       .slice(0, 10); // Show top 10 late attendances
   };
 
+  const getLateTodayCount = () => {
+    const today = toLocalDateInputValue();
+    return attendanceReport.filter((r) => {
+      if (!r.check_in_time || r.admin_status !== 'approved') return false;
+      if (!r.check_in_time.startsWith(today)) return false;
+      const checkInTime = new Date(r.check_in_time);
+      const shiftStart = r.shift === 'A' ? 9 : r.shift === 'B' ? 14 : r.shift === 'C' ? 22 : 9;
+      const lateMinutes = Math.floor(
+        (checkInTime.getTime() - new Date(checkInTime).setHours(shiftStart, 0, 0, 0)) / (1000 * 60)
+      );
+      return lateMinutes > 15;
+    }).length;
+  };
+
   if (!user) return null;
 
   const handleSidebarChange = (key) => {
     if (key === 'logout') {
       logout();
-      navigate('/admin/login');
+      navigate('/admin-login');
     } else {
       setActiveTab(key);
       if (window.innerWidth < 768) setSidebarOpen(false);
     }
+  };
+
+  const setToCurrentMonth = () => {
+    const now = new Date();
+    setReportYear(now.getFullYear());
+    setReportMonth(now.getMonth() + 1);
+  };
+
+  const setToPreviousMonth = () => {
+    const now = new Date();
+    const previousMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    setReportYear(previousMonthDate.getFullYear());
+    setReportMonth(previousMonthDate.getMonth() + 1);
   };
 
   // StatCard Component
@@ -629,9 +677,7 @@ const AdminDashboard = () => {
                   <StatCard
                     icon={AlertCircle}
                     label="Late Today"
-                    value={getLateAttendanceAlerts().filter(r =>
-                      new Date(r.check_in_time).toDateString() === new Date().toDateString()
-                    ).length}
+                    value={getLateTodayCount()}
                     color="from-orange-500 to-orange-600"
                   />
                   <StatCard
@@ -710,49 +756,93 @@ const AdminDashboard = () => {
 
         {/* ================= MONTHLY REPORT ================= */}
         {activeTab === 'monthly-report' && (
-          <div className="bg-white rounded-2xl shadow p-6 mb-6">
-            <h3 className="text-xl font-semibold mb-4">Monthly Attendance Report</h3>
-            <div className="flex gap-3 items-center flex-wrap">
-              <input
-                type="number"
-                min="2000"
-                max="2099"
-                value={reportYear}
-                onChange={(e) => setReportYear(Number(e.target.value))}
-                className="border p-2 rounded w-32"
-                aria-label="Year"
-              />
-
-              <select
-                value={reportMonth}
-                onChange={(e) => setReportMonth(Number(e.target.value))}
-                className="border p-2 rounded"
-                aria-label="Month"
-              >
-                <option value={1}>January</option>
-                <option value={2}>February</option>
-                <option value={3}>March</option>
-                <option value={4}>April</option>
-                <option value={5}>May</option>
-                <option value={6}>June</option>
-                <option value={7}>July</option>
-                <option value={8}>August</option>
-                <option value={9}>September</option>
-                <option value={10}>October</option>
-                <option value={11}>November</option>
-                <option value={12}>December</option>
-              </select>
-
-              <button
-                onClick={downloadMonthlyReport}
-                disabled={downloading}
-                className="bg-blue-600 text-white px-4 py-2 rounded"
-              >
-                {downloading ? 'Downloading...' : 'Download Monthly Report'}
-              </button>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-3xl overflow-hidden shadow-xl mb-6 border border-blue-100 bg-white"
+          >
+            <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-600 text-white p-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-blue-100 text-sm font-medium mb-1">Reports</p>
+                  <h3 className="text-2xl font-bold">Monthly Attendance Report</h3>
+                  <p className="text-blue-100 text-sm mt-2">
+                    Download PA/Late summary in Excel for any month and year.
+                  </p>
+                </div>
+                <div className="bg-white/15 rounded-xl px-4 py-2 text-sm">
+                  Selected: <span className="font-semibold">{selectedMonthLabel} {reportYear}</span>
+                </div>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 mt-3">Select Year and Month then click Download to retrieve the Excel file.</p>
-          </div>
+
+            <div className="p-6">
+              <div className="flex flex-wrap gap-2 mb-5">
+                <button
+                  type="button"
+                  onClick={setToCurrentMonth}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+                >
+                  This Month
+                </button>
+                <button
+                  type="button"
+                  onClick={setToPreviousMonth}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+                >
+                  Last Month
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Year</label>
+                  <input
+                    type="number"
+                    min="2000"
+                    max="2099"
+                    value={reportYear}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      if (Number.isNaN(value)) return;
+                      setReportYear(Math.min(2099, Math.max(2000, value)));
+                    }}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    aria-label="Year"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Month</label>
+                  <select
+                    value={reportMonth}
+                    onChange={(e) => setReportMonth(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                    aria-label="Month"
+                  >
+                    {MONTH_OPTIONS.map((month) => (
+                      <option key={month.value} value={month.value}>
+                        {month.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={downloadMonthlyReport}
+                  disabled={downloading}
+                  className="h-[46px] bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl px-4 font-semibold flex items-center justify-center gap-2 transition disabled:cursor-not-allowed"
+                >
+                  <Download size={18} className={downloading ? 'animate-spin' : ''} />
+                  {downloading ? 'Downloading...' : 'Download Report'}
+                </button>
+              </div>
+
+              <div className="mt-4 p-3 rounded-xl bg-gray-50 border border-gray-200 text-sm text-gray-700">
+                File name: <span className="font-semibold">monthly_attendance_{reportYear}_{String(reportMonth).padStart(2, '0')}.xlsx</span>
+              </div>
+            </div>
+          </motion.div>
         )}
         {/* STATS */}
         {activeTab === 'reports' && (

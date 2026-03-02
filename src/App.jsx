@@ -1,5 +1,12 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  useNavigate
+} from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -12,10 +19,32 @@ import MyAttendance from './pages/MyAttendance';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 
+function PathNormalizer() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    const normalizedPath = location.pathname.replace(/\/{2,}/g, '/');
+    if (normalizedPath !== location.pathname) {
+      navigate(
+        {
+          pathname: normalizedPath,
+          search: location.search,
+          hash: location.hash
+        },
+        { replace: true }
+      );
+    }
+  }, [location.pathname, location.search, location.hash, navigate]);
+
+  return null;
+}
+
 function App() {
   return (
     <AuthProvider>
       <Router>
+        <PathNormalizer />
         <div className="App flex flex-col min-h-screen">
           <div className="flex-grow">
             <Routes>

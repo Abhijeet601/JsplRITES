@@ -24,34 +24,35 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
-    const fetchTodayStatus = async () => {
+    const fetchDashboardData = async () => {
       try {
         const today = toLocalDateInputValue();
-        const res = await api.get('/api/user/my-attendance', {
-          params: { start_date: today, end_date: today }
+        const res = await api.get('/api/user/my-attendance');
+        const records = res.data.attendance_records || [];
+
+        const todayRecord = records.find((r) => {
+          const checkInDate = r.check_in_time ? toLocalDateInputValue(new Date(r.check_in_time)) : null;
+          const checkOutDate = r.check_out_time ? toLocalDateInputValue(new Date(r.check_out_time)) : null;
+          return checkInDate === today || checkOutDate === today;
+        }) || null;
+        setTodayStatus(todayRecord);
+
+        const workedRecords = records.filter((r) => typeof r.work_hours === 'number');
+        const avgHours = workedRecords.length > 0
+          ? workedRecords.reduce((sum, r) => sum + r.work_hours, 0) / workedRecords.length
+          : 0;
+
+        setStats({
+          total_attendance: records.length,
+          present_days: records.filter(
+            (r) =>
+              r.system_status === 'approved' ||
+              r.system_status === 'present' ||
+              r.admin_status === 'approved'
+          ).length,
+          absent_days: records.filter((r) => r.system_status === 'absent').length,
+          average_hours: avgHours.toFixed(2),
         });
-        if (res.data.attendance_records && res.data.attendance_records.length > 0) {
-          const todayRecord = res.data.attendance_records.find(
-            r => r.check_in_time && toLocalDateInputValue(new Date(r.check_in_time)) === today
-          );
-          
-          if (todayRecord) {
-            setTodayStatus(todayRecord);
-          }
-
-          // Calculate stats
-          const records = res.data.attendance_records;
-          const avgHours = records.length > 0 
-            ? (records.reduce((sum, r) => sum + (r.work_hours || 0), 0) / records.length)
-            : 0;
-
-          setStats({
-            total_attendance: records.length,
-            present_days: records.filter(r => r.system_status === 'approved' || r.system_status === 'present').length,
-            absent_days: records.filter(r => r.system_status === 'absent').length,
-            average_hours: avgHours.toFixed(2),
-          });
-        }
       } catch (err) {
         console.error('Failed to fetch today status', err);
       } finally {
@@ -59,10 +60,10 @@ const Dashboard = () => {
       }
     };
 
-    fetchTodayStatus();
+    fetchDashboardData();
 
-    const timer = setInterval(fetchTodayStatus, 30000);
-    const onFocus = () => fetchTodayStatus();
+    const timer = setInterval(fetchDashboardData, 30000);
+    const onFocus = () => fetchDashboardData();
     window.addEventListener('focus', onFocus);
     return () => {
       clearInterval(timer);
@@ -150,6 +151,25 @@ const Dashboard = () => {
             )}
           </motion.div>
         )}
+
+        {/* MARK ATTENDANCE INSTRUCTIONS */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18 }}
+          className="bg-white rounded-2xl shadow-lg p-6 mb-6 border-l-4 border-green-600"
+        >
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">
+            Mark Attendance Instructions
+          </h2>
+          <ul className="space-y-2 text-sm text-gray-700">
+            <li>1. Allow camera and location permissions in your browser.</li>
+            <li>2. Make sure you are at your approved office/base location.</li>
+            <li>3. Capture clear face and daily photos when prompted.</li>
+            <li>4. Submit check-in/check-out once and wait for confirmation.</li>
+            <li>5. Verify update in Today&apos;s Status or My Attendance History.</li>
+          </ul>
+        </motion.div>
 
         {/* STATISTICS */}
         <motion.div

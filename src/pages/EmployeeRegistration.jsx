@@ -199,6 +199,20 @@ const EmployeeRegistration = () => {
             </p>
           </div>
 
+          {/* REGISTRATION INSTRUCTIONS */}
+          <div className="mb-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <h2 className="text-sm font-semibold text-blue-900 mb-2">
+              Registration Instructions
+            </h2>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>1. Fill your correct personal details exactly as per office records.</li>
+              <li>2. Create a strong password and confirm it before moving ahead.</li>
+              <li>3. Record a clear face video in good lighting, looking straight at camera.</li>
+              <li>4. Upload your valid supporting document and submit registration.</li>
+              <li>5. Wait for admin approval, then login to mark attendance.</li>
+            </ul>
+          </div>
+
           {/* PROGRESS STEPS */}
           <div className="mb-8 flex justify-between items-center">
             {[1, 2, 3].map((step) => (
