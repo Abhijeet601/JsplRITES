@@ -1,8 +1,12 @@
 import axios from 'axios';
 
+const backendBaseUrl = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001')
+  .trim()
+  .replace(/\/+$/, '');
+
 // Create axios instance
 const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001', // FastAPI backend URL
+  baseURL: backendBaseUrl, // FastAPI backend URL
   headers: {
     'Content-Type': 'application/json',
   },

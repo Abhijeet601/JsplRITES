@@ -1,0 +1,19 @@
+.plant-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 500px at 5% -10%, rgba(14, 165, 233, 0.35), transparent 70%),
+    radial-gradient(1000px 500px at 95% -10%, rgba(16, 185, 129, 0.3), transparent 70%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 40%, #ecfeff 100%);
+}
+
+.plant-card {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.07);
+}
+
+.plant-title {
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}

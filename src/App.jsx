@@ -18,6 +18,11 @@ import Attendance from './pages/Attendance';
 import MyAttendance from './pages/MyAttendance';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import PlantLogin from './pages/plant/PlantLogin';
+import PlantEmployeeDashboard from './pages/plant/PlantEmployeeDashboard';
+import PlantAdminDashboard from './pages/plant/PlantAdminDashboard';
+import { PlantAuthProvider } from './plant/PlantAuthContext';
+import PlantProtectedRoute from './plant/PlantProtectedRoute';
 
 function PathNormalizer() {
   const location = useLocation();
@@ -53,6 +58,34 @@ function App() {
             <Route path="/login" element={<EmployeeLogin />} />
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/" element={<EmployeeLogin />} />
+            <Route
+              path="/plant-login"
+              element={
+                <PlantAuthProvider>
+                  <PlantLogin />
+                </PlantAuthProvider>
+              }
+            />
+            <Route
+              path="/plant-employee"
+              element={
+                <PlantAuthProvider>
+                  <PlantProtectedRoute roles={['employee']}>
+                    <PlantEmployeeDashboard />
+                  </PlantProtectedRoute>
+                </PlantAuthProvider>
+              }
+            />
+            <Route
+              path="/plant-admin"
+              element={
+                <PlantAuthProvider>
+                  <PlantProtectedRoute roles={['plant_admin', 'super_admin']}>
+                    <PlantAdminDashboard />
+                  </PlantProtectedRoute>
+                </PlantAuthProvider>
+              }
+            />
 
             {/* Protected Employee Routes */}
             <Route
