@@ -21,6 +21,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import PlantLogin from './pages/plant/PlantLogin';
 import PlantEmployeeDashboard from './pages/plant/PlantEmployeeDashboard';
 import PlantAdminDashboard from './pages/plant/PlantAdminDashboard';
+import NotFound from './pages/NotFound';
 import { PlantAuthProvider } from './plant/PlantAuthContext';
 import PlantProtectedRoute from './plant/PlantProtectedRoute';
 
@@ -131,8 +132,8 @@ function App() {
               }
             />
 
-            {/* Fallback: redirect unknown routes */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="/404" element={<NotFound />} />
+            <Route path="*" element={<Navigate to="/404" replace />} />
             </Routes>
           </div>
 

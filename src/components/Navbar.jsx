@@ -1,17 +1,14 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { UserCircle, ArrowLeft, Menu } from 'lucide-react';
+import { UserCircle, Menu } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Navbar = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const handleBack = () => {
-    navigate(-1);
-  };
-
-  const handleHome = () => navigate('/admin');
+  const homePath = user?.role === 'admin' ? '/admin-dashboard' : '/dashboard';
+  const handleHome = () => navigate(homePath);
 
   if (!user) return null;
 
@@ -28,7 +25,7 @@ const Navbar = () => {
             >
               <Menu size={20} />
             </button>
-            <Link to="/" className="flex items-center gap-3">
+            <Link to={homePath} className="flex items-center gap-3">
               <img src="/rites-logo.jpeg" alt="RITES Logo" className="h-8 w-auto" />
               <div className="flex flex-col leading-tight">
                 <span className="text-lg font-semibold text-white">SmartPresence</span>

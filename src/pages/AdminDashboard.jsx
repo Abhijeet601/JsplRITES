@@ -57,6 +57,44 @@ const toLocalDateInputValue = (dateObj = new Date()) => {
   return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
 };
 
+const TAB_META = {
+  dashboard: {
+    eyebrow: 'Command Center',
+    title: 'Admin Dashboard',
+    description: 'Track approvals, attendance flow, reports and employee management from one place.'
+  },
+  registrations: {
+    eyebrow: 'Approvals',
+    title: 'Pending Registrations',
+    description: 'Review new employee submissions and assign validated work locations.'
+  },
+  attendance: {
+    eyebrow: 'Monitoring',
+    title: 'Attendance Control',
+    description: 'Filter records, resolve pending punches and review employee punch history.'
+  },
+  employees: {
+    eyebrow: 'Directory',
+    title: 'Employee Management',
+    description: 'Update employee profiles, locations and account access details.'
+  },
+  'monthly-report': {
+    eyebrow: 'Exports',
+    title: 'Monthly Reports',
+    description: 'Generate Excel exports for attendance summaries by month.'
+  },
+  reports: {
+    eyebrow: 'Analytics',
+    title: 'Attendance Reports',
+    description: 'Inspect attendance trends, shift distribution and late arrival patterns.'
+  },
+  settings: {
+    eyebrow: 'Security',
+    title: 'Admin Settings',
+    description: 'Maintain profile information and protect access credentials.'
+  }
+};
+
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -71,6 +109,7 @@ const AdminDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [editingEmployee, setEditingEmployee] = useState(null);
+  const [deletingEmployeeId, setDeletingEmployeeId] = useState(null);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -119,6 +158,13 @@ const AdminDashboard = () => {
   const showToast = (msg, type = 'info') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast({ message: '', type: 'info' }), 4000);
+  };
+
+  const getStorageUrl = (path) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    const normalizedPath = String(path).replace(/^\/+/, '');
+    return `${api.defaults.baseURL}/${normalizedPath}`;
   };
 
   // Fetch data based on active tab
@@ -240,7 +286,12 @@ const AdminDashboard = () => {
 
   const updateEmployee = async (employeeId, updatedData) => {
     try {
-      await api.put(`/api/admin/employees/${employeeId}`, updatedData);
+      const payload = {
+        ...updatedData,
+        base_location_lat: updatedData.base_location_lat === '' ? null : Number(updatedData.base_location_lat),
+        base_location_lon: updatedData.base_location_lon === '' ? null : Number(updatedData.base_location_lon),
+      };
+      await api.put(`/api/admin/employees/${employeeId}`, payload);
       fetchEmployees();
       setEditingEmployee(null);
       setEditForm({
@@ -251,8 +302,30 @@ const AdminDashboard = () => {
         base_location_lon: '',
         base_location_name: ''
       });
-    } catch {
-      setError('Failed to update employee');
+      showToast('Employee profile updated', 'success');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to update employee');
+      showToast('Failed to update employee', 'error');
+    }
+  };
+
+  const deleteEmployee = async (employee) => {
+    const confirmed = window.confirm(`Delete employee ${employee.name} (${employee.employee_id})? This cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingEmployeeId(employee.id);
+      await api.delete(`/api/admin/employees/${employee.id}`);
+      setEmployees((prev) => prev.filter((e) => e.id !== employee.id));
+      if (editingEmployee === employee.id) {
+        cancelEditing();
+      }
+      showToast('Employee deleted successfully', 'success');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to delete employee');
+      showToast('Failed to delete employee', 'error');
+    } finally {
+      setDeletingEmployeeId(null);
     }
   };
 
@@ -591,8 +664,32 @@ const AdminDashboard = () => {
     </motion.div>
   );
 
+  const SectionIntro = ({ eyebrow, title, description, badge }) => (
+    <div className="relative overflow-hidden rounded-[28px] border border-cyan-100 bg-[radial-gradient(circle_at_top_left,_rgba(6,182,212,0.18),_transparent_34%),linear-gradient(135deg,#ffffff_0%,#f3f9ff_55%,#eef8f7_100%)] p-6 sm:p-8 shadow-lg">
+      <div className="absolute right-0 top-0 h-32 w-32 rounded-full bg-cyan-200/30 blur-3xl" />
+      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">{eyebrow}</p>
+          <h1 className="mt-2 text-3xl sm:text-4xl font-bold tracking-tight text-slate-900">{title}</h1>
+          <p className="mt-3 text-sm sm:text-base text-slate-600">{description}</p>
+        </div>
+        {badge && (
+          <div className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 text-sm text-slate-700 shadow-sm">
+            {badge}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const SurfaceCard = ({ className = '', children }) => (
+    <div className={`rounded-3xl border border-slate-200/80 bg-white/90 shadow-lg shadow-slate-200/40 backdrop-blur ${className}`}>
+      {children}
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#edf7ff_0%,#f7fafc_32%,#f2f8f7_100%)]">
       <Navbar />
 
       <div className="flex">
@@ -650,12 +747,68 @@ const AdminDashboard = () => {
               </button>
             </div>
 
+            <div className="mb-6">
+              <SectionIntro
+                eyebrow={TAB_META[activeTab]?.eyebrow || 'Admin'}
+                title={TAB_META[activeTab]?.title || 'Admin Panel'}
+                description={TAB_META[activeTab]?.description || 'Manage the application from this workspace.'}
+                badge={
+                  <>
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    Signed in as <span className="font-semibold">{user?.name || user?.employee_id}</span>
+                  </>
+                }
+              />
+            </div>
+
             {/* Dashboard Home */}
             {activeTab === 'dashboard' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <div className="mb-8">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome, {user.name}</h1>
-                  <p className="text-gray-600">Here's what's happening in your attendance system today.</p>
+                <div className="mb-8 grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+                  <SurfaceCard className="p-6 sm:p-7">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-cyan-700">Today&apos;s operating summary</p>
+                        <h2 className="mt-2 text-2xl font-bold text-slate-900">Welcome back, {user.name}</h2>
+                        <p className="mt-2 max-w-xl text-sm text-slate-600">
+                          Review workforce movement, clear pending items and export daily records from a single dashboard.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                          <p className="text-slate-500">Pending registrations</p>
+                          <p className="mt-1 text-xl font-semibold text-slate-900">{pendingRegistrations.length}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                          <p className="text-slate-500">Pending attendance</p>
+                          <p className="mt-1 text-xl font-semibold text-slate-900">{pendingAttendance.length}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </SurfaceCard>
+
+                  <SurfaceCard className="overflow-hidden">
+                    <div className="bg-gradient-to-r from-slate-900 via-cyan-900 to-teal-800 p-6 text-white">
+                      <p className="text-xs uppercase tracking-[0.24em] text-cyan-200">Quick Daily Report</p>
+                      <p className="mt-2 text-lg font-semibold">Download attendance by date</p>
+                    </div>
+                    <div className="p-6">
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Select Date</label>
+                      <input
+                        type="date"
+                        value={dailyReportDate}
+                        onChange={(e) => setDailyReportDate(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
+                      />
+                      <button
+                        onClick={downloadDailyReport}
+                        disabled={downloadingDaily}
+                        className="mt-4 w-full rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-200 transition hover:from-cyan-700 hover:to-blue-700 disabled:cursor-not-allowed disabled:from-slate-400 disabled:to-slate-500"
+                      >
+                        {downloadingDaily ? 'Downloading...' : 'Download Daily Report'}
+                      </button>
+                    </div>
+                  </SurfaceCard>
                 </div>
 
                 {/* Stat Cards */}
@@ -688,46 +841,11 @@ const AdminDashboard = () => {
                   />
                 </div>
 
-                {/* Daily Report Download */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-2xl p-6 shadow-md mb-8"
-                >
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-purple-600" />
-                    Quick Daily Report
-                  </h3>
-                  <p className="text-gray-600 text-sm mb-4">Download attendance report for any specific date</p>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-stretch sm:items-end w-full">
-                    <div className="flex-1">
-                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                        Select Date
-                      </label>
-                      <input
-                        type="date"
-                        value={dailyReportDate}
-                        onChange={(e) => setDailyReportDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-xs sm:text-sm"
-                      />
-                    </div>
-                    <button
-                      onClick={downloadDailyReport}
-                      disabled={downloadingDaily}
-                      className="w-full sm:w-auto bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold px-3 sm:px-6 py-2 rounded-lg flex items-center justify-center gap-2 transition-all duration-200 disabled:cursor-not-allowed text-xs sm:text-sm whitespace-nowrap"
-                    >
-                      <Download className={`w-3 h-3 sm:w-4 sm:h-4 ${downloadingDaily ? 'animate-spin' : ''}`} />
-                      <span>{downloadingDaily ? 'Downloading...' : 'Download'}</span>
-                    </button>
-                  </div>
-                </motion.div>
-
                 {/* Quick Actions */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                   <motion.div
                     whileHover={{ y: -5 }}
-                    className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 cursor-pointer"
+                    className="bg-white/90 rounded-3xl shadow-lg p-6 border border-slate-200 cursor-pointer"
                     onClick={() => setActiveTab('registrations')}
                   >
                     <Users className="text-blue-600 mb-3" size={32} />
@@ -740,7 +858,7 @@ const AdminDashboard = () => {
 
                   <motion.div
                     whileHover={{ y: -5 }}
-                    className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100 cursor-pointer"
+                    className="bg-white/90 rounded-3xl shadow-lg p-6 border border-slate-200 cursor-pointer"
                     onClick={() => setActiveTab('attendance')}
                   >
                     <Calendar className="text-green-600 mb-3" size={32} />
@@ -886,6 +1004,26 @@ const AdminDashboard = () => {
                     <p><b>Employee ID:</b> {reg.employee_id}</p>
                     <p><b>Email:</b> {reg.email}</p>
                     <p><b>Mobile:</b> {reg.mobile_number}</p>
+                    {reg.face_image_path && (
+                      <div className="mt-3">
+                        <p className="text-sm font-semibold text-gray-700 mb-2">Registered Face</p>
+                        <img
+                          src={getStorageUrl(reg.face_image_path)}
+                          alt={`${reg.name} face`}
+                          className="w-36 h-36 rounded-lg border border-gray-300 object-cover"
+                        />
+                      </div>
+                    )}
+                    {reg.document_path && (
+                      <a
+                        href={getStorageUrl(reg.document_path)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block mt-3 text-sm text-blue-600 hover:text-blue-800 underline"
+                      >
+                        View Uploaded Document
+                      </a>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -934,7 +1072,7 @@ const AdminDashboard = () => {
             className="space-y-6"
           >
             {/* Attendance Filters */}
-            <div className="bg-white rounded-2xl shadow-lg p-4 md:p-6">
+            <SurfaceCard className="p-4 md:p-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                 <input
                   className="border p-2 rounded text-sm"
@@ -1015,10 +1153,11 @@ const AdminDashboard = () => {
                   </select>
                 </div>
               </div>
-            </div>
+            </SurfaceCard>
 
             {/* Attendance Records Table */}
-            <div className="bg-white rounded-2xl shadow-lg overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
+            <SurfaceCard className="overflow-hidden">
+            <div className="overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
               <table className="w-full min-w-max text-sm sm:text-base">
                 <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
                   <tr>
@@ -1058,6 +1197,7 @@ const AdminDashboard = () => {
                 </tbody>
               </table>
             </div>
+            </SurfaceCard>
 
             {/* Attendance Pagination */}
             <div className="flex items-center justify-end gap-2">
@@ -1079,7 +1219,8 @@ const AdminDashboard = () => {
             </div>
 
             {/* Pending Attendance Approvals */}
-            <div className="bg-white rounded-2xl shadow-lg overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
+            <SurfaceCard className="overflow-hidden">
+            <div className="overflow-x-auto -mx-3 sm:-mx-4 md:mx-0 md:rounded-2xl">
               <table className="w-full min-w-max text-sm sm:text-base">
                 <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
                   <tr>
@@ -1125,12 +1266,14 @@ const AdminDashboard = () => {
                 </tbody>
               </table>
             </div>
+            </SurfaceCard>
           </motion.div>
         )}
 
         {/* ================= EMPLOYEES ================= */}
         {activeTab === 'employees' && (
-          <div className="bg-white rounded-2xl shadow-lg overflow-x-auto">
+          <SurfaceCard className="overflow-hidden">
+          <div className="overflow-x-auto">
             <table className="w-full min-w-max text-sm sm:text-base">
               <thead className="bg-gradient-to-r from-blue-600 to-green-600 text-white sticky top-0">
                 <tr>
@@ -1243,6 +1386,13 @@ const AdminDashboard = () => {
                             Edit
                           </button>
                           <button
+                            onClick={() => deleteEmployee(emp)}
+                            disabled={deletingEmployeeId === emp.id}
+                            className="bg-red-600 text-white px-3 py-1 rounded text-sm disabled:opacity-60"
+                          >
+                            {deletingEmployeeId === emp.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                          <button
                             onClick={() => setResetPasswordEmployee(emp)}
                             className="bg-red-500 text-white px-3 py-1 rounded text-sm"
                           >
@@ -1256,6 +1406,7 @@ const AdminDashboard = () => {
               </tbody>
             </table>
           </div>
+          </SurfaceCard>
         )}
 
         {/* RESET PASSWORD MODAL */}
@@ -1292,7 +1443,7 @@ const AdminDashboard = () => {
         {activeTab === 'reports' && (
           <>
             {/* QUICK FILTERS */}
-            <div className="bg-white p-4 rounded-2xl shadow mb-4">
+            <SurfaceCard className="p-4 mb-4">
               <div className="flex gap-3 mb-4">
                 <button
                   onClick={() => {
@@ -1359,7 +1510,7 @@ const AdminDashboard = () => {
                   Filter
                 </button>
               </div>
-            </div>
+            </SurfaceCard>
 
             {/* CHARTS */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -1367,7 +1518,7 @@ const AdminDashboard = () => {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl shadow-lg p-6"
+                className="bg-white rounded-3xl shadow-lg p-6 border border-slate-200"
               >
                 <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                   <BarChart3 className="text-blue-600" />
@@ -1391,7 +1542,7 @@ const AdminDashboard = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="bg-white rounded-2xl shadow-lg p-6"
+                className="bg-white rounded-3xl shadow-lg p-6 border border-slate-200"
               >
                 <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                   <BarChart3 className="text-purple-600" />
@@ -1423,7 +1574,7 @@ const AdminDashboard = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl shadow-lg p-6 mb-6"
+              className="bg-white rounded-3xl shadow-lg p-6 mb-6 border border-slate-200"
             >
               <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <AlertTriangle className="text-red-600" />
@@ -1457,7 +1608,7 @@ const AdminDashboard = () => {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-2xl shadow p-6"
+              className="bg-white rounded-3xl shadow p-6 border border-slate-200"
             >
               <h3 className="text-xl font-semibold mb-4">Update Profile</h3>
               <div className="grid md:grid-cols-3 gap-4">
@@ -1496,7 +1647,7 @@ const AdminDashboard = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-white rounded-2xl shadow p-6"
+              className="bg-white rounded-3xl shadow p-6 border border-slate-200"
             >
               <h3 className="text-xl font-semibold mb-4">Change Password</h3>
               <div className="grid md:grid-cols-3 gap-4">
