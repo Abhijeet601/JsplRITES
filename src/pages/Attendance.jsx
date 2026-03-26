@@ -19,6 +19,7 @@ import Navbar from '../components/Navbar';
 
 const Attendance = () => {
   const [loading, setLoading] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [warning, setWarning] = useState('');
   const [error, setError] = useState('');
@@ -27,6 +28,7 @@ const Attendance = () => {
   const [capturedImage, setCapturedImage] = useState(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [todaySummary, setTodaySummary] = useState(null);
 
   // Permission status states: 'pending' | 'requesting' | 'granted' | 'denied'
   const [locationPermissionStatus, setLocationPermissionStatus] = useState('pending');
@@ -53,6 +55,24 @@ const Attendance = () => {
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [capturedImage]);
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        setSummaryLoading(true);
+        const { data } = await api.get('/api/user/today-summary');
+        setTodaySummary(data?.today_summary || null);
+      } catch {
+        setTodaySummary(null);
+      } finally {
+        setSummaryLoading(false);
+      }
+    };
+
+    fetchSummary();
+    const timer = window.setInterval(fetchSummary, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // ================= LOCATION =================
   const requestLocationPermission = useCallback(async () => {
@@ -181,6 +201,13 @@ const Attendance = () => {
       setCapturedImage(null);
       setShowImagePreview(false);
 
+      try {
+        const { data } = await api.get('/api/user/today-summary');
+        setTodaySummary(data?.today_summary || null);
+      } catch {
+        setTodaySummary(null);
+      }
+
       // refresh visible location
       getLocation().catch(() => {});
 
@@ -203,6 +230,7 @@ const Attendance = () => {
   if (!user) return null;
 
   const canSubmit = !loading && !!capturedImage && !!location;
+  const attendanceActionLabel = todaySummary?.punch_state === 'checked_in' ? 'Check-Out' : 'Check-In';
 
   const steps = [
     { label: 'Location captured', done: Boolean(location) },
@@ -244,7 +272,30 @@ const Attendance = () => {
             </div>
             <div className="inline-flex items-center gap-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-cyan-800 text-sm">
               <Clock3 size={16} />
-              Required shift time: <span className="font-semibold">8:30 hours</span>
+              Required working time: <span className="font-semibold">8.00 hours</span>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-4 gap-3 mt-6">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Punch State</p>
+              <p className="mt-1 font-semibold text-slate-800">
+                {summaryLoading ? 'Loading...' : todaySummary?.punch_state === 'checked_in' ? 'Checked In' : todaySummary?.punch_state === 'checked_out' ? 'Checked Out' : 'Not Started'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Live Hours</p>
+              <p className="mt-1 font-semibold text-slate-800">{Number(todaySummary?.total_hours || 0).toFixed(2)} hrs</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Deficit / Extra</p>
+              <p className="mt-1 font-semibold text-slate-800">
+                {Number(todaySummary?.deficit_hours || 0).toFixed(2)} / {Number(todaySummary?.extra_hours || 0).toFixed(2)} hrs
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Status</p>
+              <p className="mt-1 font-semibold text-slate-800">{todaySummary?.status || 'Pending'}</p>
             </div>
           </div>
 
@@ -532,11 +583,11 @@ const Attendance = () => {
               {loading ? (
                 <>
                   <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                  Marking Attendance...
+                  Processing {attendanceActionLabel}...
                 </>
               ) : (
                 <>
-                  Mark Attendance
+                  {attendanceActionLabel}
                   <ArrowRight size={18} />
                 </>
               )}

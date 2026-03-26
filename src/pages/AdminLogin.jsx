@@ -1,10 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { Shield, User, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
+import { User, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
+
+function getErrorMessage(error) {
+  const detail = error?.response?.data?.detail;
+
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail;
+  }
+
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((item) => item?.msg || 'Validation error').join(', ');
+  }
+
+  if (detail && typeof detail === 'object') {
+    return detail.msg || 'Login failed. Please check your credentials.';
+  }
+
+  return 'Login failed. Please check your credentials.';
+}
 
 const AdminLogin = () => {
   const [formData, setFormData] = useState({ username: '', password: '' });
@@ -57,10 +74,18 @@ const AdminLogin = () => {
     setLoading(true);
 
     try {
+      const payload = new FormData();
+      payload.append('username', formData.username.trim());
+      payload.append('password', formData.password);
+
       const response = await api.post(
         '/api/auth/admin/login',
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
+        payload,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
       );
 
       // Save credentials if remember me is checked
@@ -83,7 +108,7 @@ const AdminLogin = () => {
 
       navigate('/admin-dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed. Please check your credentials.');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -91,14 +116,6 @@ const AdminLogin = () => {
 
   return (
     <>
-      <Helmet>
-        <title>Admin Login - Geo Attendance System</title>
-        <meta
-          name="description"
-          content="Administrator login portal for geo-location attendance management"
-        />
-      </Helmet>
-
       <div className="min-h-screen flex items-center justify-center p-4 bg-gray-100">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

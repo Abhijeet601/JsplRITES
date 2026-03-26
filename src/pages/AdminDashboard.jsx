@@ -86,7 +86,7 @@ const TAB_META = {
   reports: {
     eyebrow: 'Analytics',
     title: 'Attendance Reports',
-    description: 'Inspect attendance trends, shift distribution and late arrival patterns.'
+    description: 'Inspect attendance trends, policy events, status distribution, and weekly compensation.'
   },
   settings: {
     eyebrow: 'Security',
@@ -557,17 +557,12 @@ const AdminDashboard = () => {
       const dayRecords = attendanceReport.filter(r =>
         r.check_in_time && r.check_in_time.startsWith(dateStr)
       );
-      const present = dayRecords.filter(r => r.admin_status === 'approved').length;
-      const late = dayRecords.filter(r => {
-        if (!r.check_in_time) return false;
-        const checkInTime = new Date(r.check_in_time);
-        const shiftStart = r.shift === 'A' ? 9 : r.shift === 'B' ? 14 : r.shift === 'C' ? 22 : 9;
-        return checkInTime.getHours() >= shiftStart + 1; // Late if more than 1 hour after shift start
-      }).length;
+      const present = dayRecords.filter(r => r.status === 'Present' || r.status === 'Minor Late').length;
+      const events = dayRecords.filter(r => Number(r.event_count || 0) > 0).length;
       last7Days.push({
         date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         present,
-        late
+        events
       });
     }
     return last7Days;
@@ -576,7 +571,8 @@ const AdminDashboard = () => {
   const getShiftDistributionData = () => {
     const shifts = {};
     attendanceReport.forEach(r => {
-      shifts[r.shift] = (shifts[r.shift] || 0) + 1;
+      const label = r.status || 'Pending';
+      shifts[label] = (shifts[label] || 0) + 1;
     });
     return Object.entries(shifts).map(([shift, count]) => ({
       name: shift.toUpperCase(),
@@ -587,35 +583,24 @@ const AdminDashboard = () => {
   const getLateAttendanceAlerts = () => {
     return attendanceReport
       .filter(r => {
-        if (!r.check_in_time || r.admin_status !== 'approved') return false;
-        const checkInTime = new Date(r.check_in_time);
-        const shiftStart = r.shift === 'A' ? 9 : r.shift === 'B' ? 14 : r.shift === 'C' ? 22 : 9;
-        const lateMinutes = Math.floor((checkInTime.getTime() - new Date(checkInTime).setHours(shiftStart, 0, 0, 0)) / (1000 * 60));
-        return lateMinutes > 15; // Late if more than 15 minutes
+        if (!r.check_in_time) return false;
+        return Number(r.event_count || 0) > 0 || Number(r.deficit_hours || 0) > 0;
       })
       .map(r => {
-        const checkInTime = new Date(r.check_in_time);
-        const shiftStart = r.shift === 'A' ? 9 : r.shift === 'B' ? 14 : r.shift === 'C' ? 22 : 9;
-        const lateMinutes = Math.floor((checkInTime.getTime() - new Date(checkInTime).setHours(shiftStart, 0, 0, 0)) / (1000 * 60));
         return {
           ...r,
-          lateMinutes
+          deficitHours: Number(r.deficit_hours || 0).toFixed(2)
         };
       })
-      .slice(0, 10); // Show top 10 late attendances
+      .slice(0, 10);
   };
 
   const getLateTodayCount = () => {
     const today = toLocalDateInputValue();
     return attendanceReport.filter((r) => {
-      if (!r.check_in_time || r.admin_status !== 'approved') return false;
+      if (!r.check_in_time) return false;
       if (!r.check_in_time.startsWith(today)) return false;
-      const checkInTime = new Date(r.check_in_time);
-      const shiftStart = r.shift === 'A' ? 9 : r.shift === 'B' ? 14 : r.shift === 'C' ? 22 : 9;
-      const lateMinutes = Math.floor(
-        (checkInTime.getTime() - new Date(checkInTime).setHours(shiftStart, 0, 0, 0)) / (1000 * 60)
-      );
-      return lateMinutes > 15;
+      return Number(r.event_count || 0) > 0 || Number(r.deficit_hours || 0) > 0;
     }).length;
   };
 
@@ -829,7 +814,7 @@ const AdminDashboard = () => {
                   />
                   <StatCard
                     icon={AlertCircle}
-                    label="Late Today"
+                    label="Events / Deficits Today"
                     value={getLateTodayCount()}
                     color="from-orange-500 to-orange-600"
                   />
@@ -885,7 +870,7 @@ const AdminDashboard = () => {
                   <p className="text-blue-100 text-sm font-medium mb-1">Reports</p>
                   <h3 className="text-2xl font-bold">Monthly Attendance Report</h3>
                   <p className="text-blue-100 text-sm mt-2">
-                    Download PA/Late summary in Excel for any month and year.
+                    Download the monthly 8-hour policy summary in Excel for any month and year.
                   </p>
                 </div>
                 <div className="bg-white/15 rounded-xl px-4 py-2 text-sm">
@@ -1080,27 +1065,18 @@ const AdminDashboard = () => {
                   value={filters.employee_id}
                   onChange={e => setFilters({ ...filters, employee_id: e.target.value })}
                 />
-                <select
+                <input
                   className="border p-2 rounded text-sm"
+                  placeholder="Shift / roster"
                   value={filters.shift}
                   onChange={e => setFilters({ ...filters, shift: e.target.value })}
-                >
-                  <option value="">All Shifts</option>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                  <option value="general">General</option>
-                  <option value="01:00-09:30">01:00-09:30</option>
-                  <option value="06:00-14:30">06:00-14:30</option>
-                  <option value="08:00-16:30">08:00-16:30</option>
-                  <option value="09:00-17:30">09:00-17:30</option>
-                  <option value="10:00-18:00">10:00-18:00</option>
-                  <option value="10:00-18:30">10:00-18:30</option>
-                  <option value="14:00-22:30">14:00-22:30</option>
-                  <option value="17:00-01:30">17:00-01:30</option>
-                  <option value="21:00-05:30">21:00-05:30</option>
-                  <option value="22:00-06:30">22:00-06:30</option>
-                </select>
+                />
+                <input
+                  className="border p-2 rounded text-sm"
+                  placeholder="Plant"
+                  value={filters.plant || ''}
+                  onChange={e => setFilters({ ...filters, plant: e.target.value })}
+                />
                 <input
                   type="date"
                   className="border p-2 rounded text-sm"
@@ -1129,6 +1105,24 @@ const AdminDashboard = () => {
                   className="bg-green-600 text-white px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
                 >
                   Today
+                </button>
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const res = await api.post('/api/admin/process-weekly-attendance');
+                      showToast('Weekly attendance processed successfully', 'success');
+                      fetchAttendanceReport(1);
+                      console.log('Weekly process result', res.data);
+                    } catch (e) {
+                      showToast(e?.response?.data?.detail || 'Weekly process failed', 'error');
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  className="bg-indigo-600 text-white px-3 py-2 rounded text-sm font-medium whitespace-nowrap"
+                >
+                  Process Weekly
                 </button>
               </div>
               <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
@@ -1484,24 +1478,8 @@ const AdminDashboard = () => {
               <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
                 <input className="border p-2 rounded text-sm" placeholder="Employee ID"
                   onChange={e => setFilters({ ...filters, employee_id: e.target.value })} />
-                <select className="border p-2 rounded text-sm"
-                  onChange={e => setFilters({ ...filters, shift: e.target.value })}>
-                  <option value="">All Shifts</option>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                  <option value="general">General</option>
-                  <option value="01:00-09:30">01:00-09:30</option>
-                  <option value="06:00-14:30">06:00-14:30</option>
-                  <option value="08:00-16:30">08:00-16:30</option>
-                  <option value="09:00-17:30">09:00-17:30</option>
-                  <option value="10:00-18:00">10:00-18:00</option>
-                  <option value="10:00-18:30">10:00-18:30</option>
-                  <option value="14:00-22:30">14:00-22:30</option>
-                  <option value="17:00-01:30">17:00-01:30</option>
-                  <option value="21:00-05:30">21:00-05:30</option>
-                  <option value="22:00-06:30">22:00-06:30</option>
-                </select>
+                <input className="border p-2 rounded text-sm" placeholder="Shift / roster"
+                  onChange={e => setFilters({ ...filters, shift: e.target.value })} />
                 <input type="date" className="border p-2 rounded text-sm"
                   onChange={e => setFilters({ ...filters, start_date: e.target.value })} />
                 <input type="date" className="border p-2 rounded text-sm"
@@ -1532,12 +1510,12 @@ const AdminDashboard = () => {
                     <Tooltip />
                     <Legend />
                     <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} />
-                    <Line type="monotone" dataKey="late" stroke="#f59e0b" strokeWidth={2} />
+                    <Line type="monotone" dataKey="events" stroke="#f59e0b" strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </motion.div>
 
-              {/* SHIFT DISTRIBUTION CHART */}
+              {/* STATUS DISTRIBUTION CHART */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1546,7 +1524,7 @@ const AdminDashboard = () => {
               >
                 <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                   <BarChart3 className="text-purple-600" />
-                  Shift Distribution
+                  Status Distribution
                 </h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
@@ -1570,7 +1548,7 @@ const AdminDashboard = () => {
               </motion.div>
             </div>
 
-            {/* LATE ATTENDANCE ALERTS */}
+            {/* POLICY ALERTS */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1578,7 +1556,7 @@ const AdminDashboard = () => {
             >
               <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <AlertTriangle className="text-red-600" />
-                Late Attendance Alerts
+                Policy Alerts
               </h3>
               <div className="space-y-3">
                 {getLateAttendanceAlerts().map((alert, index) => (
@@ -1587,14 +1565,16 @@ const AdminDashboard = () => {
                       <AlertTriangle size={20} className="text-red-600" />
                       <div>
                         <p className="font-medium text-red-800">{alert.employee_id} - {alert.name}</p>
-                        <p className="text-sm text-red-600">Late by {alert.lateMinutes} minutes on {new Date(alert.check_in_time).toLocaleDateString()}</p>
+                        <p className="text-sm text-red-600">
+                          Deficit {alert.deficitHours} hour(s) on {new Date(alert.check_in_time).toLocaleDateString()}
+                        </p>
                       </div>
                     </div>
-                    <span className="text-red-600 font-semibold">{alert.shift}</span>
+                    <span className="text-red-600 font-semibold">{alert.status || 'Flagged'}</span>
                   </div>
                 ))}
                 {getLateAttendanceAlerts().length === 0 && (
-                  <p className="text-green-600 text-center py-4">No late attendance records found</p>
+                  <p className="text-green-600 text-center py-4">No active policy alerts found</p>
                 )}
               </div>
             </motion.div>

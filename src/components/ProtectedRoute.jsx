@@ -20,7 +20,8 @@ const ProtectedRoute = ({ children, requiredRole }) => {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    const loginPath = requiredRole === 'admin' ? '/admin-login' : '/login';
+    return <Navigate to={loginPath} replace />;
   }
 
   if (requiredRole && user.role !== requiredRole) {

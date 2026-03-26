@@ -34,7 +34,9 @@ api.interceptors.response.use(
       // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      const currentPath = window.location.pathname || '';
+      const isAdminRoute = currentPath.startsWith('/admin');
+      window.location.href = isAdminRoute ? '/admin-login' : '/login';
     }
     return Promise.reject(error);
   }
