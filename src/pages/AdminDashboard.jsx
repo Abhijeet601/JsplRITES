@@ -52,6 +52,14 @@ const MONTH_OPTIONS = [
   { value: 12, label: 'December' }
 ];
 
+const APPROVAL_LOCATION_OPTIONS = [
+  {
+    name: 'Jindal Steel,Raigarh',
+    lat: 21.933217202276783,
+    lon: 83.34181839370518,
+  },
+];
+
 const toLocalDateInputValue = (dateObj = new Date()) => {
   const tzOffsetMs = dateObj.getTimezoneOffset() * 60000;
   return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
@@ -165,6 +173,16 @@ const AdminDashboard = () => {
     if (/^https?:\/\//i.test(path)) return path;
     const normalizedPath = String(path).replace(/^\/+/, '');
     return `${api.defaults.baseURL}/${normalizedPath}`;
+  };
+
+  const applyApprovalLocation = (registration, locationName) => {
+    const selectedLocation = APPROVAL_LOCATION_OPTIONS.find((option) => option.name === locationName);
+    registration.baseLocationName = locationName;
+    if (selectedLocation) {
+      registration.baseLocationLat = selectedLocation.lat;
+      registration.baseLocationLon = selectedLocation.lon;
+      setPendingRegistrations((prev) => [...prev]);
+    }
   };
 
   // Fetch data based on active tab
@@ -1012,15 +1030,23 @@ const AdminDashboard = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <input
-                      placeholder="Location Name"
-                      className="w-full border rounded-lg p-2 text-sm"
-                      onChange={e => reg.baseLocationName = e.target.value}
-                    />
+                    <select
+                      className="w-full border rounded-lg p-2 text-sm bg-white"
+                      value={reg.baseLocationName || ''}
+                      onChange={(e) => applyApprovalLocation(reg, e.target.value)}
+                    >
+                      <option value="">Select location</option>
+                      {APPROVAL_LOCATION_OPTIONS.map((option) => (
+                        <option key={option.name} value={option.name}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       placeholder="Latitude"
                       type="number"
                       step="any"
+                      value={reg.baseLocationLat || ''}
                       className="w-full border rounded-lg p-2 text-sm"
                       onChange={e => reg.baseLocationLat = e.target.value}
                     />
@@ -1028,6 +1054,7 @@ const AdminDashboard = () => {
                       placeholder="Longitude"
                       type="number"
                       step="any"
+                      value={reg.baseLocationLon || ''}
                       className="w-full border rounded-lg p-2 text-sm"
                       onChange={e => reg.baseLocationLon = e.target.value}
                     />
