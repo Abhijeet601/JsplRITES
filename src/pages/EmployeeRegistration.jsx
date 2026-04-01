@@ -491,8 +491,16 @@ const EmployeeRegistration = () => {
                     accept="video/*"
                     onChange={handleVideoUpload}
                     disabled={loading}
-                    className="mt-2 w-full border rounded-lg px-3 py-2"
+                    className="hidden"
                   />
+                  <button
+                    type="button"
+                    onClick={() => videoInputRef.current?.click()}
+                    disabled={loading}
+                    className="mt-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Upload Face Image
+                  </button>
                   {faceVideo && (
                     <p className="text-green-600 text-sm mt-1 flex items-center gap-1">
                       <Check size={16} /> {faceVideo.name}
