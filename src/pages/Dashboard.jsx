@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { AlertCircle, Clock, LogOut, TrendingUp, User } from 'lucide-react';
+import { AlertCircle, Clock, LogIn, LogOut, TrendingUp, User, BadgeCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import Navbar from '../components/Navbar';
@@ -68,7 +68,43 @@ const Dashboard = () => {
 
   if (!user) return null;
 
-  const attendanceLabel = todayStatus?.punch_state === 'checked_in' ? 'Go to Check-Out' : 'Go to Check-In';
+  const attendanceState = todayStatus?.punch_state === 'checked_out'
+    ? 'completed'
+    : todayStatus?.punch_state === 'checked_in'
+      ? 'check_out'
+      : 'check_in';
+
+  const actionCard = {
+    check_in: {
+      title: 'Ready for Check-In',
+      description: 'You have not checked in yet. Tap below to start your working day.',
+      buttonLabel: 'Open Check-In',
+      icon: LogIn,
+      cardClass: 'bg-gradient-to-br from-emerald-500 to-green-600',
+      buttonClass: 'bg-white text-emerald-700 hover:bg-emerald-50',
+      statusText: 'Not Checked In',
+    },
+    check_out: {
+      title: 'Ready for Check-Out',
+      description: 'Your check-in is already recorded. Tap below to complete check-out.',
+      buttonLabel: 'Open Check-Out',
+      icon: LogOut,
+      cardClass: 'bg-gradient-to-br from-red-500 to-rose-600',
+      buttonClass: 'bg-white text-red-700 hover:bg-red-50',
+      statusText: 'Checked In, Check-Out Pending',
+    },
+    completed: {
+      title: 'Attendance Completed',
+      description: 'Today’s check-in and check-out are both done.',
+      buttonLabel: 'View Attendance Status',
+      icon: BadgeCheck,
+      cardClass: 'bg-gradient-to-br from-slate-600 to-slate-700',
+      buttonClass: 'bg-white text-slate-700 hover:bg-slate-50',
+      statusText: 'Checked In and Checked Out',
+    },
+  }[attendanceState];
+
+  const ActionIcon = actionCard.icon;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -245,22 +281,25 @@ const Dashboard = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-8 text-white relative overflow-hidden group"
+            className={`${actionCard.cardClass} rounded-2xl shadow-lg p-8 text-white relative overflow-hidden group`}
           >
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-white opacity-10 rounded-full group-hover:scale-150 transition-transform duration-300" />
-            <Clock size={50} className="opacity-40 mb-4 relative z-10" />
-            <h2 className="text-3xl font-bold mb-2 relative z-10">Attendance Action</h2>
-            <p className="text-blue-100 mb-6 relative z-10">
-              {todayStatus?.punch_state === 'checked_in'
-                ? 'Complete your check-out to finalize today’s working hours.'
-                : 'Start your working day with secure check-in.'}
+            <ActionIcon size={50} className="opacity-40 mb-4 relative z-10" />
+            <p className="text-sm uppercase tracking-[0.2em] text-white/80 relative z-10">Attendance Action</p>
+            <h2 className="text-3xl font-bold mb-2 mt-2 relative z-10">{actionCard.title}</h2>
+            <p className="text-white/90 mb-3 relative z-10">
+              {actionCard.description}
+            </p>
+            <p className="text-white/80 mb-6 relative z-10">
+              Current status: {actionCard.statusText}
             </p>
 
             <Link
               to="/attendance"
-              className="inline-block bg-white text-blue-600 font-semibold px-8 py-3 rounded-xl shadow hover:bg-blue-50 transition relative z-10"
+              className={`inline-flex items-center gap-2 font-semibold px-8 py-3 rounded-xl shadow transition relative z-10 ${actionCard.buttonClass}`}
             >
-              {attendanceLabel}
+              <ActionIcon size={18} />
+              {actionCard.buttonLabel}
             </Link>
           </motion.div>
 

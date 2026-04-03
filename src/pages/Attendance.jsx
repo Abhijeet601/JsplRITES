@@ -10,19 +10,34 @@ import {
   Shield,
   Clock3,
   ArrowRight,
+  LogIn,
+  LogOut,
+  TimerReset,
+  BadgeCheck,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/axios';
 import CameraCapture from '../components/CameraCapture';
 import Navbar from '../components/Navbar';
+import Toast from '../components/Toast';
+
+const formatTime = (value) => {
+  if (!value) return 'Pending';
+  return new Date(value).toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatHours = (value) => `${Number(value || 0).toFixed(2)} hrs`;
 
 const Attendance = () => {
   const [loading, setLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(true);
-  const [message, setMessage] = useState('');
   const [warning, setWarning] = useState('');
   const [error, setError] = useState('');
+  const [toast, setToast] = useState({ message: '', type: 'info' });
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
   const [capturedImage, setCapturedImage] = useState(null);
@@ -46,6 +61,14 @@ const Attendance = () => {
   }, []);
 
   useEffect(() => {
+    if (!toast.message) return undefined;
+    const timer = window.setTimeout(() => {
+      if (isMountedRef.current) setToast({ message: '', type: 'info' });
+    }, 3500);
+    return () => window.clearTimeout(timer);
+  }, [toast.message]);
+
+  useEffect(() => {
     if (!capturedImage) {
       setPreviewUrl('');
       return;
@@ -56,23 +79,28 @@ const Attendance = () => {
     return () => URL.revokeObjectURL(url);
   }, [capturedImage]);
 
-  useEffect(() => {
-    const fetchSummary = async () => {
-      try {
-        setSummaryLoading(true);
-        const { data } = await api.get('/api/user/today-summary');
-        setTodaySummary(data?.today_summary || null);
-      } catch {
-        setTodaySummary(null);
-      } finally {
-        setSummaryLoading(false);
-      }
-    };
+  const fetchSummary = useCallback(async () => {
+    try {
+      setSummaryLoading(true);
+      const { data } = await api.get('/api/user/today-summary');
+      setTodaySummary(data?.today_summary || null);
+    } catch {
+      setTodaySummary(null);
+    } finally {
+      if (isMountedRef.current) setSummaryLoading(false);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchSummary();
     const timer = window.setInterval(fetchSummary, 30000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const onFocus = () => fetchSummary();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [fetchSummary]);
 
   // ================= LOCATION =================
   const requestLocationPermission = useCallback(async () => {
@@ -164,6 +192,16 @@ const Attendance = () => {
   // ================= SUBMIT =================
   const handleSubmit = useCallback(async () => {
     setWarning('');
+    setError('');
+
+    const hasCheckedIn = Boolean(todaySummary?.check_in_time);
+    const hasCheckedOut = Boolean(todaySummary?.check_out_time);
+
+    if (hasCheckedIn && hasCheckedOut) {
+      setWarning('Attendance already completed for today.');
+      return;
+    }
+
     if (!capturedImage) {
       setError('Please capture your face image first');
       return;
@@ -175,8 +213,6 @@ const Attendance = () => {
     }
 
     setLoading(true);
-    setError('');
-    setMessage('');
     setWarning('');
 
     try {
@@ -191,22 +227,13 @@ const Attendance = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      const msgParts = [];
-      if (res?.data?.message) msgParts.push(res.data.message);
-      if (res?.data?.work_hours) msgParts.push(`Work Hours: ${res.data.work_hours}`);
-
-      setMessage(msgParts.join(' | '));
+      const actionMessage = hasCheckedIn ? 'Check-Out Successful' : 'Check-In Successful';
+      setToast({ message: actionMessage, type: 'success' });
       if (res?.data?.warning) setWarning(res.data.warning);
 
       setCapturedImage(null);
       setShowImagePreview(false);
-
-      try {
-        const { data } = await api.get('/api/user/today-summary');
-        setTodaySummary(data?.today_summary || null);
-      } catch {
-        setTodaySummary(null);
-      }
+      await fetchSummary();
 
       // refresh visible location
       getLocation().catch(() => {});
@@ -225,18 +252,70 @@ const Attendance = () => {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [capturedImage, getLocation, navigate, location]);
+  }, [capturedImage, fetchSummary, getLocation, location, navigate, todaySummary]);
 
   if (!user) return null;
 
+  const hasCheckedIn = Boolean(todaySummary?.check_in_time);
+  const hasCheckedOut = Boolean(todaySummary?.check_out_time);
+  const attendanceState = hasCheckedIn && hasCheckedOut
+    ? 'completed'
+    : hasCheckedIn
+      ? 'check_out'
+      : 'check_in';
   const canSubmit = !loading && !!capturedImage && !!location;
-  const attendanceActionLabel = todaySummary?.punch_state === 'checked_in' ? 'Check-Out' : 'Check-In';
+  const attendanceActionLabel = attendanceState === 'check_out' ? 'Check-Out' : 'Check-In';
 
   const steps = [
     { label: 'Location captured', done: Boolean(location) },
     { label: 'Face captured', done: Boolean(capturedImage) },
-    { label: 'Ready to submit', done: canSubmit },
+    { label: attendanceState === 'completed' ? 'Attendance completed' : 'Ready to submit', done: attendanceState === 'completed' || canSubmit },
   ];
+
+  const badgeTone = todaySummary?.status?.toLowerCase().includes('late')
+    ? 'text-amber-800 bg-amber-100 border-amber-200'
+    : hasCheckedIn
+      ? 'text-emerald-800 bg-emerald-100 border-emerald-200'
+      : 'text-slate-700 bg-slate-100 border-slate-200';
+
+  const punctualityLabel = hasCheckedIn
+    ? todaySummary?.status?.toLowerCase().includes('late')
+      ? 'Late'
+      : 'On Time'
+    : 'Awaiting Punch';
+
+  const actionConfig = {
+    check_in: {
+      title: 'Ready for Check-In',
+      subtitle: 'Start your day by completing the secure check-in punch.',
+      buttonLabel: 'Check-In',
+      icon: LogIn,
+      buttonClass: 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white shadow-emerald-300',
+      panelClass: 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-green-50',
+      chipClass: 'border-emerald-200 bg-emerald-100 text-emerald-800',
+    },
+    check_out: {
+      title: 'Ready for Check-Out',
+      subtitle: 'Wrap up the day with your final punch and calculate total working hours.',
+      buttonLabel: 'Check-Out',
+      icon: LogOut,
+      buttonClass: 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white shadow-red-300',
+      panelClass: 'border-red-200 bg-gradient-to-br from-red-50 via-white to-rose-50',
+      chipClass: 'border-red-200 bg-red-100 text-red-800',
+    },
+    completed: {
+      title: 'Attendance Completed',
+      subtitle: 'Both punches are recorded for today. No further action is needed.',
+      buttonLabel: 'Attendance Completed',
+      icon: BadgeCheck,
+      buttonClass: 'bg-slate-200 text-slate-500 cursor-not-allowed',
+      panelClass: 'border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100',
+      chipClass: 'border-slate-200 bg-slate-100 text-slate-700',
+    },
+  };
+
+  const currentAction = actionConfig[attendanceState];
+  const ActionIcon = currentAction.icon;
 
   const statusText = (status) => {
     if (status === 'granted') return 'Granted';
@@ -255,6 +334,7 @@ const Attendance = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-cyan-50 to-emerald-50">
       <Navbar />
+      <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: '', type: 'info' })} />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <motion.div
@@ -276,16 +356,79 @@ const Attendance = () => {
             </div>
           </div>
 
+          <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-4 mt-6">
+            <div className={`rounded-3xl border p-5 sm:p-6 shadow-sm ${currentAction.panelClass}`}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${currentAction.chipClass}`}>
+                    <ActionIcon size={14} />
+                    {attendanceState === 'check_in' ? 'Start of Day' : attendanceState === 'check_out' ? 'End of Day' : 'Closed for Today'}
+                  </div>
+                  <h2 className="mt-3 text-2xl font-bold text-slate-900">{currentAction.title}</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-600">{currentAction.subtitle}</p>
+                </div>
+                <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold ${badgeTone}`}>
+                  <TimerReset size={16} />
+                  {punctualityLabel}
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl border border-emerald-100 bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Checked in at</p>
+                  <p className="mt-1 text-lg font-semibold text-emerald-700">{formatTime(todaySummary?.check_in_time)}</p>
+                </div>
+                <div className="rounded-2xl border border-red-100 bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Checked out at</p>
+                  <p className="mt-1 text-lg font-semibold text-red-700">{formatTime(todaySummary?.check_out_time)}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 sm:col-span-2 xl:col-span-1">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">{hasCheckedOut ? 'Working hours' : 'Live hours'}</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-800">{formatHours(todaySummary?.total_hours)}</p>
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-2 text-xs sm:text-sm">
+                <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-700">
+                  Shift: <span className="font-semibold">{todaySummary?.shift || user.shift || 'General'}</span>
+                </div>
+                <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-700">
+                  Status: <span className="font-semibold">{todaySummary?.status || 'Pending'}</span>
+                </div>
+                <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-700">
+                  Punch State: <span className="font-semibold">
+                    {attendanceState === 'check_in' ? 'Not Checked In' : attendanceState === 'check_out' ? 'Checked In' : 'Checked Out'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white/85 p-5 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Today&apos;s Attendance</p>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <span className="font-semibold">Checked in at:</span> {formatTime(todaySummary?.check_in_time)}
+                </div>
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+                  <span className="font-semibold">Checked out at:</span> {formatTime(todaySummary?.check_out_time)}
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                  <span className="font-semibold">{hasCheckedOut ? 'Total working hours:' : 'Current working hours:'}</span> {formatHours(todaySummary?.total_hours)}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid sm:grid-cols-4 gap-3 mt-6">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">Punch State</p>
               <p className="mt-1 font-semibold text-slate-800">
-                {summaryLoading ? 'Loading...' : todaySummary?.punch_state === 'checked_in' ? 'Checked In' : todaySummary?.punch_state === 'checked_out' ? 'Checked Out' : 'Not Started'}
+                {summaryLoading ? 'Loading...' : attendanceState === 'check_out' ? 'Checked In' : attendanceState === 'completed' ? 'Checked Out' : 'Not Started'}
               </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">Live Hours</p>
-              <p className="mt-1 font-semibold text-slate-800">{Number(todaySummary?.total_hours || 0).toFixed(2)} hrs</p>
+              <p className="mt-1 font-semibold text-slate-800">{formatHours(todaySummary?.total_hours)}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-slate-500">Deficit / Extra</p>
@@ -426,17 +569,6 @@ const Attendance = () => {
           </div>
         </motion.div>
 
-        {message && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-emerald-50 border border-emerald-300 text-emerald-700 px-4 py-3 rounded-xl mb-4 flex items-center gap-2"
-          >
-            <CheckCircle size={18} />
-            <span>{message}</span>
-          </motion.div>
-        )}
-
         {warning && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
@@ -564,10 +696,14 @@ const Attendance = () => {
           transition={{ delay: 0.15 }}
           className="mt-8"
         >
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-lg p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className={`rounded-2xl border bg-white shadow-lg p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${attendanceState === 'check_in' ? 'border-emerald-200' : attendanceState === 'check_out' ? 'border-red-200' : 'border-slate-200'}`}>
             <div className="text-sm text-slate-600">
-              {canSubmit ? (
-                <p className="text-emerald-700 font-semibold">All checks complete. You can mark attendance now.</p>
+              {attendanceState === 'completed' ? (
+                <p className="text-slate-700 font-semibold">Today&apos;s attendance is fully recorded.</p>
+              ) : canSubmit ? (
+                <p className={`font-semibold ${attendanceState === 'check_in' ? 'text-emerald-700' : 'text-red-700'}`}>
+                  All checks complete. You can {attendanceState === 'check_in' ? 'check in' : 'check out'} now.
+                </p>
               ) : (
                 <p>
                   Complete all three steps to enable submit: permissions, location, and face capture.
@@ -577,8 +713,10 @@ const Attendance = () => {
 
             <button
               onClick={handleSubmit}
-              disabled={!canSubmit || loading}
-              className="w-full sm:w-auto bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-700 hover:to-emerald-700 text-white font-semibold px-8 py-3 rounded-xl shadow disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+              disabled={attendanceState === 'completed' || !canSubmit || loading}
+              className={`w-full sm:w-auto font-semibold px-8 py-3 rounded-xl shadow transition flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed ${
+                attendanceState !== 'completed' && canSubmit && !loading ? 'animate-pulse' : ''
+              } ${currentAction.buttonClass}`}
             >
               {loading ? (
                 <>
@@ -587,8 +725,9 @@ const Attendance = () => {
                 </>
               ) : (
                 <>
-                  {attendanceActionLabel}
-                  <ArrowRight size={18} />
+                  <ActionIcon size={18} />
+                  {currentAction.buttonLabel}
+                  {attendanceState !== 'completed' && <ArrowRight size={18} />}
                 </>
               )}
             </button>
