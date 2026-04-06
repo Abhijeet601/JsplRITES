@@ -65,6 +65,13 @@ const toLocalDateInputValue = (dateObj = new Date()) => {
   return new Date(dateObj.getTime() - tzOffsetMs).toISOString().split('T')[0];
 };
 
+const toDateTimeLocalValue = (value) => {
+  if (!value) return '';
+  const dateObj = new Date(value);
+  const tzOffsetMs = dateObj.getTimezoneOffset() * 60000;
+  return new Date(dateObj.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+};
+
 const TAB_META = {
   dashboard: {
     eyebrow: 'Command Center',
@@ -150,6 +157,13 @@ const AdminDashboard = () => {
   const [attendancePage, setAttendancePage] = useState(1);
   const [attendancePageSize, setAttendancePageSize] = useState(200);
   const [attendanceTotalRecords, setAttendanceTotalRecords] = useState(0);
+  const [editingAttendanceId, setEditingAttendanceId] = useState(null);
+  const [attendanceEditForm, setAttendanceEditForm] = useState({
+    check_in_time: '',
+    check_out_time: '',
+    total_hours: '',
+    shift: '',
+  });
 
   // Monthly report states
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
@@ -393,6 +407,45 @@ const AdminDashboard = () => {
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to update attendance status');
       showToast('Failed to update attendance status', 'error');
+    }
+  };
+
+  const startAttendanceEdit = (attendance) => {
+    setEditingAttendanceId(attendance.id);
+    setAttendanceEditForm({
+      check_in_time: toDateTimeLocalValue(attendance.check_in_time),
+      check_out_time: toDateTimeLocalValue(attendance.check_out_time),
+      total_hours: attendance.total_hours ?? attendance.work_hours ?? '',
+      shift: attendance.shift || 'general',
+    });
+  };
+
+  const cancelAttendanceEdit = () => {
+    setEditingAttendanceId(null);
+    setAttendanceEditForm({
+      check_in_time: '',
+      check_out_time: '',
+      total_hours: '',
+      shift: '',
+    });
+  };
+
+  const saveAttendanceEdit = async (attendanceId) => {
+    try {
+      const payload = {
+        check_in_time: attendanceEditForm.check_in_time || null,
+        check_out_time: attendanceEditForm.check_out_time || null,
+        total_hours: attendanceEditForm.total_hours === '' ? null : Number(attendanceEditForm.total_hours),
+        shift: attendanceEditForm.shift || 'general',
+      };
+      await api.put(`/api/admin/attendance/${attendanceId}`, payload);
+      cancelAttendanceEdit();
+      fetchPendingAttendance();
+      fetchAttendanceReport(attendancePage);
+      showToast('Attendance updated successfully', 'success');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to update attendance');
+      showToast('Failed to update attendance', 'error');
     }
   };
 
@@ -1190,29 +1243,93 @@ const AdminDashboard = () => {
                     <th className="p-2 sm:p-4 text-left whitespace-nowrap">Shift</th>
                     <th className="p-2 sm:p-4 text-left whitespace-nowrap">System</th>
                     <th className="p-2 sm:p-4 text-left whitespace-nowrap">Admin</th>
+                    <th className="p-2 sm:p-4 text-left whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading && (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-gray-500">Loading attendance records...</td>
+                      <td colSpan={9} className="p-6 text-center text-gray-500">Loading attendance records...</td>
                     </tr>
                   )}
                   {!loading && attendanceReport.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-gray-500">No attendance records found for selected filters.</td>
+                      <td colSpan={9} className="p-6 text-center text-gray-500">No attendance records found for selected filters.</td>
                     </tr>
                   )}
                   {!loading && attendanceReport.map(att => (
                     <tr key={att.id} className="border-t hover:bg-gray-50">
                       <td className="p-2 sm:p-4">{att.employee_id}</td>
                       <td className="p-2 sm:p-4">{att.name}</td>
-                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{att.check_in_time ? new Date(att.check_in_time).toLocaleString() : 'N/A'}</td>
-                      <td className="p-2 sm:p-4 text-xs sm:text-sm">{att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}</td>
-                      <td className="p-2 sm:p-4">{att.work_hours ?? 'N/A'}</td>
-                      <td className="p-2 sm:p-4">{att.shift || 'N/A'}</td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">
+                        {editingAttendanceId === att.id ? (
+                          <input
+                            type="datetime-local"
+                            value={attendanceEditForm.check_in_time}
+                            onChange={(e) => setAttendanceEditForm({ ...attendanceEditForm, check_in_time: e.target.value })}
+                            className="w-full border rounded p-1"
+                          />
+                        ) : att.check_in_time ? new Date(att.check_in_time).toLocaleString() : 'N/A'}
+                      </td>
+                      <td className="p-2 sm:p-4 text-xs sm:text-sm">
+                        {editingAttendanceId === att.id ? (
+                          <input
+                            type="datetime-local"
+                            value={attendanceEditForm.check_out_time}
+                            onChange={(e) => setAttendanceEditForm({ ...attendanceEditForm, check_out_time: e.target.value })}
+                            className="w-full border rounded p-1"
+                          />
+                        ) : att.check_out_time ? new Date(att.check_out_time).toLocaleString() : 'Not checked out'}
+                      </td>
+                      <td className="p-2 sm:p-4">
+                        {editingAttendanceId === att.id ? (
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={attendanceEditForm.total_hours}
+                            onChange={(e) => setAttendanceEditForm({ ...attendanceEditForm, total_hours: e.target.value })}
+                            className="w-24 border rounded p-1"
+                          />
+                        ) : Number(att.total_hours ?? att.work_hours ?? 0).toFixed(2)}
+                      </td>
+                      <td className="p-2 sm:p-4">
+                        {editingAttendanceId === att.id ? (
+                          <input
+                            type="text"
+                            value={attendanceEditForm.shift}
+                            onChange={(e) => setAttendanceEditForm({ ...attendanceEditForm, shift: e.target.value })}
+                            className="w-28 border rounded p-1"
+                          />
+                        ) : att.shift || 'N/A'}
+                      </td>
                       <td className="p-2 sm:p-4">{att.system_status || 'N/A'}</td>
                       <td className="p-2 sm:p-4">{att.admin_status || 'pending'}</td>
+                      <td className="p-2 sm:p-4">
+                        {editingAttendanceId === att.id ? (
+                          <div className="flex gap-2 flex-wrap">
+                            <button
+                              onClick={() => saveAttendanceEdit(att.id)}
+                              className="bg-green-500 text-white px-3 py-1 rounded text-xs sm:text-sm"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={cancelAttendanceEdit}
+                              className="bg-gray-500 text-white px-3 py-1 rounded text-xs sm:text-sm"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => startAttendanceEdit(att)}
+                            className="bg-blue-500 text-white px-3 py-1 rounded text-xs sm:text-sm"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

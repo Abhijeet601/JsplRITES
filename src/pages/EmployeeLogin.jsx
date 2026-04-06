@@ -32,14 +32,16 @@ const EmployeeLogin = () => {
 
   useEffect(() => {
     const savedId = localStorage.getItem('employeeId');
-    const savedShift = localStorage.getItem('employeeShift');
+    const savedShiftType = localStorage.getItem('employeeShiftType');
+    const savedShiftLabel = localStorage.getItem('employeeShiftLabel');
     const savedRememberMe = localStorage.getItem('employeeRememberMe') === 'true';
 
     if (savedRememberMe && savedId) {
       setFormData((prev) => ({
         ...prev,
         employee_id: savedId,
-        shift_type: savedShift || 'general',
+        shift_type: savedShiftType || 'general',
+        custom_shift: savedShiftType === 'other' ? (savedShiftLabel || '') : prev.custom_shift,
       }));
       setRememberMe(true);
     }
@@ -85,17 +87,21 @@ const EmployeeLogin = () => {
 
       if (rememberMe) {
         localStorage.setItem('employeeId', formData.employee_id);
-        localStorage.setItem('employeeShift', formData.shift_type);
+        localStorage.setItem('employeeShiftType', formData.shift_type);
+        localStorage.setItem('employeeShiftLabel', getSelectedShift());
         localStorage.setItem('employeeRememberMe', 'true');
       } else {
         localStorage.removeItem('employeeId');
-        localStorage.removeItem('employeeShift');
+        localStorage.removeItem('employeeShiftType');
+        localStorage.removeItem('employeeShiftLabel');
         localStorage.removeItem('employeeRememberMe');
       }
 
       login({
-        employee_id: response.data.user_name,
+        employee_id: formData.employee_id,
+        name: response.data.user_name,
         role: 'employee',
+        shift: getSelectedShift(),
         shift_type: formData.shift_type,
         shift_time: getSelectedShift(),
         required_work_minutes: REQUIRED_WORK_MINUTES,
