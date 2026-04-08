@@ -135,6 +135,13 @@ const AdminDashboard = () => {
   });
   const [resetPasswordEmployee, setResetPasswordEmployee] = useState(null);
   const [newPassword, setNewPassword] = useState('');
+  const [selectedEmployeeReport, setSelectedEmployeeReport] = useState(null);
+  const [employeeReportLoading, setEmployeeReportLoading] = useState(false);
+  const [employeeReportData, setEmployeeReportData] = useState([]);
+  const [employeeReportFilters, setEmployeeReportFilters] = useState({
+    start_date: '',
+    end_date: ''
+  });
 
   const [adminProfile, setAdminProfile] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
@@ -609,6 +616,49 @@ const AdminDashboard = () => {
     }
   };
 
+  const openEmployeeReport = async (employee) => {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const nextFilters = {
+      start_date: toLocalDateInputValue(monthStart),
+      end_date: toLocalDateInputValue(today),
+    };
+
+    setSelectedEmployeeReport(employee);
+    setEmployeeReportFilters(nextFilters);
+    await fetchEmployeeReport(employee.employee_id, nextFilters);
+  };
+
+  const closeEmployeeReport = () => {
+    setSelectedEmployeeReport(null);
+    setEmployeeReportData([]);
+    setEmployeeReportFilters({ start_date: '', end_date: '' });
+  };
+
+  const fetchEmployeeReport = async (employeeId, reportFilters = employeeReportFilters) => {
+    if (!employeeId) return;
+
+    setEmployeeReportLoading(true);
+    try {
+      const params = {
+        employee_id: employeeId,
+        page: 1,
+        page_size: 500,
+      };
+
+      if (reportFilters.start_date) params.start_date = reportFilters.start_date;
+      if (reportFilters.end_date) params.end_date = reportFilters.end_date;
+
+      const res = await api.get('/api/admin/attendance-report', { params });
+      setEmployeeReportData(res.data.attendance_data || []);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch employee report');
+      showToast('Failed to fetch employee report', 'error');
+    } finally {
+      setEmployeeReportLoading(false);
+    }
+  };
+
   const stats = {
     totalEmployees: new Set(attendanceReport.map(r => r.employee_id)).size,
     todayAttendance: attendanceReport.filter(r =>
@@ -617,6 +667,14 @@ const AdminDashboard = () => {
     ).length,
     totalRecords: attendanceReport.length
   };
+
+  const employeeReportSummary = employeeReportData.reduce((acc, record) => {
+    const hours = Number(record.total_hours ?? record.work_hours ?? 0);
+    acc.totalHours += hours;
+    acc.presentDays += record.status === 'Present' || record.status === 'Minor Late' ? 1 : 0;
+    acc.eventDays += Number(record.event_count || 0) > 0 ? 1 : 0;
+    return acc;
+  }, { totalHours: 0, presentDays: 0, eventDays: 0 });
 
   // Helper functions for charts and alerts
   const getAttendanceTrendData = () => {
@@ -1536,6 +1594,12 @@ const AdminDashboard = () => {
                           >
                             Reset Password
                           </button>
+                          <button
+                            onClick={() => openEmployeeReport(emp)}
+                            className="bg-emerald-600 text-white px-3 py-1 rounded text-sm"
+                          >
+                            View Report
+                          </button>
                         </>
                       )}
                     </td>
@@ -1814,6 +1878,117 @@ const AdminDashboard = () => {
 
       {/* Password Reset Modal */}
       <AnimatePresence>
+        {selectedEmployeeReport && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ scale: 0.96, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 20 }} className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
+              <div className="border-b border-slate-200 bg-gradient-to-r from-emerald-600 to-teal-600 p-6 text-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-emerald-100">Individual Employee Report</p>
+                    <h3 className="mt-1 text-2xl font-bold">{selectedEmployeeReport.name}</h3>
+                    <p className="mt-1 text-sm text-emerald-50">
+                      Employee ID: {selectedEmployeeReport.employee_id} | {selectedEmployeeReport.email || 'No email'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeEmployeeReport}
+                    className="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold hover:bg-white/25"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[calc(90vh-112px)] overflow-y-auto p-6">
+                <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <input
+                        type="date"
+                        value={employeeReportFilters.start_date}
+                        onChange={(e) => setEmployeeReportFilters((prev) => ({ ...prev, start_date: e.target.value }))}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <input
+                        type="date"
+                        value={employeeReportFilters.end_date}
+                        onChange={(e) => setEmployeeReportFilters((prev) => ({ ...prev, end_date: e.target.value }))}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={() => fetchEmployeeReport(selectedEmployeeReport.employee_id)}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                      >
+                        Load Report
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Records</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportData.length}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Present Days</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportSummary.presentDays}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Hours</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportSummary.totalHours.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Event days in selected period: <span className="font-semibold">{employeeReportSummary.eventDays}</span>
+                </div>
+
+                <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="w-full min-w-max text-sm">
+                    <thead className="bg-slate-900 text-white">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Date</th>
+                        <th className="px-4 py-3 text-left">Check-in</th>
+                        <th className="px-4 py-3 text-left">Check-out</th>
+                        <th className="px-4 py-3 text-left">Hours</th>
+                        <th className="px-4 py-3 text-left">Deficit</th>
+                        <th className="px-4 py-3 text-left">Extra</th>
+                        <th className="px-4 py-3 text-left">Status</th>
+                        <th className="px-4 py-3 text-left">Admin</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employeeReportLoading && (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading employee report...</td>
+                        </tr>
+                      )}
+                      {!employeeReportLoading && employeeReportData.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">No attendance records found for this employee.</td>
+                        </tr>
+                      )}
+                      {!employeeReportLoading && employeeReportData.map((record) => (
+                        <tr key={record.id} className="border-t border-slate-200 hover:bg-slate-50">
+                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
+                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
+                          <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                          <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
+                          <td className="px-4 py-3">{Number(record.deficit_hours ?? 0).toFixed(2)}</td>
+                          <td className="px-4 py-3">{Number(record.extra_hours ?? 0).toFixed(2)}</td>
+                          <td className="px-4 py-3">{record.status || 'N/A'}</td>
+                          <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {resetPasswordEmployee && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md border border-gray-100">
