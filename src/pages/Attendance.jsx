@@ -118,13 +118,15 @@ const Attendance = () => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 300000,
+          maximumAge: 0,
         });
       });
 
       const loc = {
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        capturedAt: new Date(position.timestamp).toISOString(),
       };
       setLocation(loc);
       setLocationPermissionStatus('granted');
@@ -164,6 +166,8 @@ const Attendance = () => {
           const loc = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            capturedAt: new Date(position.timestamp).toISOString(),
           };
           if (setState && isMountedRef.current) {
             setLocation(loc);
@@ -178,7 +182,7 @@ const Attendance = () => {
           }
           reject(new Error('Location permission / retrieval failed'));
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
   }, []);
@@ -222,6 +226,8 @@ const Attendance = () => {
       formData.append('live_image', capturedImage, 'attendance.jpg');
       formData.append('latitude', String(currentLocation.latitude));
       formData.append('longitude', String(currentLocation.longitude));
+      formData.append('accuracy', String(currentLocation.accuracy || 0));
+      formData.append('location_captured_at', currentLocation.capturedAt || new Date().toISOString());
 
       const res = await api.post('/api/attendance/mark', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
