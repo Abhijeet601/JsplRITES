@@ -15,6 +15,7 @@ const Sidebar = ({ active, onChange }) => {
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'employees', label: 'Employees', icon: Users },
     { key: 'attendance', label: 'Attendance', icon: Calendar },
+    { key: 'reports', label: 'Reports', icon: FileText },
     { key: 'monthly-report', label: 'Monthly Reports', icon: FileText },
     { key: 'settings', label: 'Settings', icon: Settings },
     { key: 'logout', label: 'Logout', icon: LogOut }

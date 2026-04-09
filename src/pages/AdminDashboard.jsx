@@ -72,6 +72,18 @@ const toDateTimeLocalValue = (value) => {
   return new Date(dateObj.getTime() - tzOffsetMs).toISOString().slice(0, 16);
 };
 
+const getDefaultReportFilters = () => {
+  const today = new Date();
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  return {
+    employee_select: '',
+    employee_id: '',
+    shift: '',
+    start_date: toLocalDateInputValue(monthStart),
+    end_date: toLocalDateInputValue(today),
+  };
+};
+
 const TAB_META = {
   dashboard: {
     eyebrow: 'Command Center',
@@ -136,12 +148,28 @@ const AdminDashboard = () => {
   const [resetPasswordEmployee, setResetPasswordEmployee] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [selectedEmployeeReport, setSelectedEmployeeReport] = useState(null);
-  const [employeeReportLoading, setEmployeeReportLoading] = useState(false);
-  const [employeeReportData, setEmployeeReportData] = useState([]);
-  const [employeeReportFilters, setEmployeeReportFilters] = useState({
-    start_date: '',
-    end_date: ''
+  const [reportOverview, setReportOverview] = useState({
+    totalEmployees: 0,
+    presentToday: 0,
+    lateToday: 0,
+    pendingApprovals: 0,
   });
+  const [reportFilters, setReportFilters] = useState(getDefaultReportFilters());
+  const [reportData, setReportData] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSummary, setReportSummary] = useState({
+    total_records: 0,
+    total_employees: 0,
+    today_attendance: {
+      present_today: 0,
+      late_today: 0,
+    },
+    selected_employee: null,
+    selected_employee_summary: null,
+  });
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPageSize, setReportPageSize] = useState(100);
+  const [reportTotalRecords, setReportTotalRecords] = useState(0);
 
   const [adminProfile, setAdminProfile] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
@@ -189,6 +217,33 @@ const AdminDashboard = () => {
     setTimeout(() => setToast({ message: '', type: 'info' }), 4000);
   };
 
+  const syncReportOverview = (summary) => {
+    if (!summary) return;
+    setReportOverview((prev) => ({
+      totalEmployees: summary.total_employees || prev.totalEmployees,
+      presentToday: summary.today_attendance?.present_today || 0,
+      lateToday: summary.today_attendance?.late_today || 0,
+      pendingApprovals: prev.pendingApprovals,
+    }));
+  };
+
+  const normalizeReportFilters = (nextFilters) => {
+    const normalized = { ...nextFilters };
+    if (normalized.start_date && !normalized.end_date) {
+      normalized.end_date = normalized.start_date;
+    }
+    if (normalized.end_date && !normalized.start_date) {
+      normalized.start_date = normalized.end_date;
+    }
+    if (normalized.employee_select) {
+      normalized.employee_id = normalized.employee_select;
+    }
+    return normalized;
+  };
+
+  const getEffectiveReportEmployeeId = (nextFilters) =>
+    (nextFilters.employee_select || nextFilters.employee_id || '').trim();
+
   const getStorageUrl = (path) => {
     if (!path) return '';
     if (/^https?:\/\//i.test(path)) return path;
@@ -214,7 +269,11 @@ const AdminDashboard = () => {
       fetchPendingAttendance();
     }
     if (activeTab === 'employees') fetchEmployees();
-    if (activeTab === 'reports') fetchAttendanceReport(1);
+    if (activeTab === 'reports') {
+      fetchEmployees();
+      fetchPendingAttendance();
+      fetchReports(1);
+    }
     if (activeTab === 'dashboard') {
       fetchTodayAttendance();
       fetchPendingAttendance();
@@ -226,7 +285,7 @@ const AdminDashboard = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab !== 'attendance' && activeTab !== 'dashboard') return undefined;
+    if (activeTab !== 'attendance' && activeTab !== 'dashboard' && activeTab !== 'reports') return undefined;
     const timer = setInterval(() => {
       if (activeTab === 'dashboard') {
         fetchTodayAttendance();
@@ -234,19 +293,22 @@ const AdminDashboard = () => {
       } else if (activeTab === 'attendance') {
         fetchAttendanceReport(attendancePage);
         fetchPendingAttendance();
+      } else if (activeTab === 'reports') {
+        fetchReports(reportPage);
+        fetchPendingAttendance();
       }
     }, 30000);
 
     return () => clearInterval(timer);
-  }, [activeTab, attendancePage, attendancePageSize, filters]);
+  }, [activeTab, attendancePage, attendancePageSize, filters, reportPage, reportPageSize, reportFilters]);
 
   const fetchPendingRegistrations = async () => {
     setLoading(true);
     try {
       const res = await api.get('/api/admin/pending-registrations');
       setPendingRegistrations(res.data.pending_users);
-    } catch {
-      setError('Failed to fetch pending registrations');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch pending registrations');
     } finally {
       setLoading(false);
     }
@@ -256,9 +318,14 @@ const AdminDashboard = () => {
     setLoading(true);
     try {
       const res = await api.get('/api/admin/pending-attendance');
-      setPendingAttendance(res.data.pending_attendance);
-    } catch {
-      setError('Failed to fetch pending attendance');
+      const nextPendingAttendance = res.data.pending_attendance || [];
+      setPendingAttendance(nextPendingAttendance);
+      setReportOverview((prev) => ({
+        ...prev,
+        pendingApprovals: nextPendingAttendance.length,
+      }));
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch pending attendance');
     } finally {
       setLoading(false);
     }
@@ -286,11 +353,78 @@ const AdminDashboard = () => {
       setAttendanceReport(res.data.attendance_data || []);
       setAttendanceTotalRecords(res.data.total_records || 0);
       setAttendancePage(res.data.page || page);
-    } catch {
-      setError('Failed to fetch attendance report');
+      syncReportOverview(res.data.summary);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch attendance report');
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchReports = async (page = reportPage, overrides = {}) => {
+    setReportLoading(true);
+    setError('');
+    try {
+      const effectiveFilters = normalizeReportFilters(
+        overrides.filters ? { ...reportFilters, ...overrides.filters } : reportFilters
+      );
+      const effectivePageSize = overrides.pageSize ?? reportPageSize;
+      const params = {
+        page,
+        page_size: effectivePageSize,
+      };
+      const effectiveEmployeeId = getEffectiveReportEmployeeId(effectiveFilters);
+      if (effectiveEmployeeId) params.employee_id = effectiveEmployeeId;
+      if (effectiveFilters.shift) params.shift = effectiveFilters.shift;
+      if (effectiveFilters.start_date) params.start_date = effectiveFilters.start_date;
+      if (effectiveFilters.end_date) params.end_date = effectiveFilters.end_date;
+
+      const res = await api.get('/api/admin/attendance-report', { params });
+      setReportData(res.data.attendance_data || []);
+      setReportTotalRecords(res.data.total_records || 0);
+      setReportPage(res.data.page || page);
+      setReportSummary(res.data.summary || {
+        total_records: 0,
+        total_employees: 0,
+        today_attendance: { present_today: 0, late_today: 0 },
+        selected_employee: null,
+        selected_employee_summary: null,
+      });
+      setSelectedEmployeeReport(res.data.summary?.selected_employee || null);
+      syncReportOverview(res.data.summary);
+    } catch (e) {
+      const detail = e?.response?.data?.detail || 'Failed to fetch attendance report';
+      setError(detail);
+      showToast(detail, 'error');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const applyReportFilters = async (nextFilters = {}, options = {}) => {
+    const mergedFilters = normalizeReportFilters({ ...reportFilters, ...nextFilters });
+    const nextPage = options.page ?? 1;
+    const nextPageSize = options.pageSize ?? reportPageSize;
+    const effectiveEmployeeId = getEffectiveReportEmployeeId(mergedFilters);
+
+    setReportFilters(mergedFilters);
+    setReportPage(nextPage);
+    if (options.pageSize) {
+      setReportPageSize(nextPageSize);
+    }
+    if (!effectiveEmployeeId) {
+      setSelectedEmployeeReport(null);
+      setReportSummary((prev) => ({
+        ...prev,
+        selected_employee: null,
+        selected_employee_summary: null,
+      }));
+    }
+
+    await fetchReports(nextPage, {
+      filters: mergedFilters,
+      pageSize: nextPageSize,
+    });
   };
 
   const fetchTodayAttendance = async () => {
@@ -304,8 +438,9 @@ const AdminDashboard = () => {
       });
       setAttendanceReport(res.data.attendance_data || []);
       setAttendanceTotalRecords(res.data.total_records || 0);
-    } catch {
-      setError('Failed to fetch today attendance');
+      syncReportOverview(res.data.summary);
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch today attendance');
     } finally {
       setLoading(false);
     }
@@ -315,9 +450,14 @@ const AdminDashboard = () => {
     setLoading(true);
     try {
       const res = await api.get('/api/admin/employees');
-      setEmployees(res.data.employees || []);
-    } catch {
-      setError('Failed to fetch employees');
+      const nextEmployees = res.data.employees || [];
+      setEmployees(nextEmployees);
+      setReportOverview((prev) => ({
+        ...prev,
+        totalEmployees: nextEmployees.length,
+      }));
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to fetch employees');
     } finally {
       setLoading(false);
     }
@@ -619,62 +759,30 @@ const AdminDashboard = () => {
   const openEmployeeReport = async (employee) => {
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const nextFilters = {
+    setSelectedEmployeeReport(employee);
+    setActiveTab('reports');
+    await applyReportFilters({
+      employee_select: employee.employee_id,
+      employee_id: employee.employee_id,
+      shift: '',
       start_date: toLocalDateInputValue(monthStart),
       end_date: toLocalDateInputValue(today),
-    };
-
-    setSelectedEmployeeReport(employee);
-    setEmployeeReportFilters(nextFilters);
-    await fetchEmployeeReport(employee.employee_id, nextFilters);
+    });
   };
 
   const closeEmployeeReport = () => {
     setSelectedEmployeeReport(null);
-    setEmployeeReportData([]);
-    setEmployeeReportFilters({ start_date: '', end_date: '' });
-  };
-
-  const fetchEmployeeReport = async (employeeId, reportFilters = employeeReportFilters) => {
-    if (!employeeId) return;
-
-    setEmployeeReportLoading(true);
-    try {
-      const params = {
-        employee_id: employeeId,
-        page: 1,
-        page_size: 500,
-      };
-
-      if (reportFilters.start_date) params.start_date = reportFilters.start_date;
-      if (reportFilters.end_date) params.end_date = reportFilters.end_date;
-
-      const res = await api.get('/api/admin/attendance-report', { params });
-      setEmployeeReportData(res.data.attendance_data || []);
-    } catch (e) {
-      setError(e?.response?.data?.detail || 'Failed to fetch employee report');
-      showToast('Failed to fetch employee report', 'error');
-    } finally {
-      setEmployeeReportLoading(false);
-    }
+    setReportSummary((prev) => ({
+      ...prev,
+      selected_employee: null,
+      selected_employee_summary: null,
+    }));
   };
 
   const stats = {
-    totalEmployees: new Set(attendanceReport.map(r => r.employee_id)).size,
-    todayAttendance: attendanceReport.filter(r =>
-      r.check_in_time &&
-      new Date(r.check_in_time).toDateString() === new Date().toDateString()
-    ).length,
-    totalRecords: attendanceReport.length
+    totalEmployees: reportOverview.totalEmployees,
+    todayAttendance: reportOverview.presentToday,
   };
-
-  const employeeReportSummary = employeeReportData.reduce((acc, record) => {
-    const hours = Number(record.total_hours ?? record.work_hours ?? 0);
-    acc.totalHours += hours;
-    acc.presentDays += record.status === 'Present' || record.status === 'Minor Late' ? 1 : 0;
-    acc.eventDays += Number(record.event_count || 0) > 0 ? 1 : 0;
-    return acc;
-  }, { totalHours: 0, presentDays: 0, eventDays: 0 });
 
   // Helper functions for charts and alerts
   const getAttendanceTrendData = () => {
@@ -683,7 +791,7 @@ const AdminDashboard = () => {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = toLocalDateInputValue(date);
-      const dayRecords = attendanceReport.filter(r =>
+      const dayRecords = reportData.filter(r =>
         r.check_in_time && r.check_in_time.startsWith(dateStr)
       );
       const present = dayRecords.filter(r => r.status === 'Present' || r.status === 'Minor Late').length;
@@ -699,7 +807,7 @@ const AdminDashboard = () => {
 
   const getShiftDistributionData = () => {
     const shifts = {};
-    attendanceReport.forEach(r => {
+    reportData.forEach(r => {
       const label = r.status || 'Pending';
       shifts[label] = (shifts[label] || 0) + 1;
     });
@@ -710,7 +818,7 @@ const AdminDashboard = () => {
   };
 
   const getLateAttendanceAlerts = () => {
-    return attendanceReport
+    return reportData
       .filter(r => {
         if (!r.check_in_time) return false;
         return Number(r.event_count || 0) > 0 || Number(r.deficit_hours || 0) > 0;
@@ -725,13 +833,17 @@ const AdminDashboard = () => {
   };
 
   const getLateTodayCount = () => {
-    const today = toLocalDateInputValue();
-    return attendanceReport.filter((r) => {
-      if (!r.check_in_time) return false;
-      if (!r.check_in_time.startsWith(today)) return false;
-      return Number(r.event_count || 0) > 0 || Number(r.deficit_hours || 0) > 0;
-    }).length;
+    return reportOverview.lateToday;
   };
+
+  const selectedReportEmployee = reportSummary.selected_employee || selectedEmployeeReport;
+  const selectedEmployeeSummary = reportSummary.selected_employee_summary || {
+    present_days: 0,
+    approved_days: 0,
+    pending_or_rejected_days: 0,
+    total_worked_hours: 0,
+  };
+  const reportTotalPages = Math.max(1, Math.ceil(reportTotalRecords / reportPageSize));
 
   if (!user) return null;
 
@@ -1078,7 +1190,7 @@ const AdminDashboard = () => {
         )}
         {/* STATS */}
         {activeTab === 'reports' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
             <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white">
               <p className="text-blue-100 text-sm">Total Employees</p>
               <p className="text-4xl font-bold">{stats.totalEmployees}</p>
@@ -1086,14 +1198,20 @@ const AdminDashboard = () => {
             </div>
 
             <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-green-100 text-sm">Today's Attendance</p>
+              <p className="text-green-100 text-sm">Present Today</p>
               <p className="text-4xl font-bold">{stats.todayAttendance}</p>
               <Calendar className="opacity-40 absolute right-6 top-6" size={40} />
             </div>
 
+            <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl shadow-lg p-6 text-white">
+              <p className="text-amber-100 text-sm">Late Today</p>
+              <p className="text-4xl font-bold">{getLateTodayCount()}</p>
+              <AlertTriangle className="opacity-40 absolute right-6 top-6" size={40} />
+            </div>
+
             <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-purple-100 text-sm">Total Records</p>
-              <p className="text-4xl font-bold">{stats.totalRecords}</p>
+              <p className="text-purple-100 text-sm">Pending Approvals</p>
+              <p className="text-4xl font-bold">{reportOverview.pendingApprovals}</p>
               <Clock className="opacity-40 absolute right-6 top-6" size={40} />
             </div>
           </div>
@@ -1643,21 +1761,40 @@ const AdminDashboard = () => {
 
         {/* ================= REPORTS ================= */}
         {activeTab === 'reports' && (
-          <>
-            {/* QUICK FILTERS */}
-            <SurfaceCard className="p-4 mb-4">
-              <div className="flex gap-3 mb-4">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 to-cyan-600 p-6 text-white shadow-lg">
+                <p className="text-sm text-blue-100">Total Employees</p>
+                <p className="mt-2 text-4xl font-bold">{reportOverview.totalEmployees}</p>
+                <Users className="absolute right-5 top-5 opacity-30" size={36} />
+              </div>
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 to-green-600 p-6 text-white shadow-lg">
+                <p className="text-sm text-emerald-100">Present Today</p>
+                <p className="mt-2 text-4xl font-bold">{reportOverview.presentToday}</p>
+                <Calendar className="absolute right-5 top-5 opacity-30" size={36} />
+              </div>
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-amber-500 to-orange-500 p-6 text-white shadow-lg">
+                <p className="text-sm text-amber-100">Late Today</p>
+                <p className="mt-2 text-4xl font-bold">{reportOverview.lateToday}</p>
+                <AlertTriangle className="absolute right-5 top-5 opacity-30" size={36} />
+              </div>
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-violet-600 to-indigo-600 p-6 text-white shadow-lg">
+                <p className="text-sm text-violet-100">Pending Approvals</p>
+                <p className="mt-2 text-4xl font-bold">{reportOverview.pendingApprovals}</p>
+                <Clock className="absolute right-5 top-5 opacity-30" size={36} />
+              </div>
+            </div>
+
+            <SurfaceCard className="p-4 md:p-6">
+              <div className="flex flex-wrap gap-3 mb-4">
                 <button
                   onClick={() => {
                     const today = new Date();
                     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-                    const nextFilters = {
-                      ...filters,
+                    applyReportFilters({
                       start_date: toLocalDateInputValue(weekAgo),
-                      end_date: toLocalDateInputValue(today)
-                    };
-                    setFilters(nextFilters);
-                    fetchAttendanceReport(1, { filters: nextFilters });
+                      end_date: toLocalDateInputValue(today),
+                    });
                   }}
                   className="flex items-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg transition"
                 >
@@ -1667,14 +1804,11 @@ const AdminDashboard = () => {
                 <button
                   onClick={() => {
                     const today = new Date();
-                    const monthAgo = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate() + 1);
-                    const nextFilters = {
-                      ...filters,
-                      start_date: toLocalDateInputValue(monthAgo),
-                      end_date: toLocalDateInputValue(today)
-                    };
-                    setFilters(nextFilters);
-                    fetchAttendanceReport(1, { filters: nextFilters });
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    applyReportFilters({
+                      start_date: toLocalDateInputValue(monthStart),
+                      end_date: toLocalDateInputValue(today),
+                    });
                   }}
                   className="flex items-center gap-2 bg-green-100 hover:bg-green-200 text-green-700 px-4 py-2 rounded-lg transition"
                 >
@@ -1683,24 +1817,205 @@ const AdminDashboard = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
-                <input className="border p-2 rounded text-sm" placeholder="Employee ID"
-                  onChange={e => setFilters({ ...filters, employee_id: e.target.value })} />
-                <input className="border p-2 rounded text-sm" placeholder="Shift / roster"
-                  onChange={e => setFilters({ ...filters, shift: e.target.value })} />
-                <input type="date" className="border p-2 rounded text-sm"
-                  onChange={e => setFilters({ ...filters, start_date: e.target.value })} />
-                <input type="date" className="border p-2 rounded text-sm"
-                  onChange={e => setFilters({ ...filters, end_date: e.target.value })} />
-                <button onClick={fetchAttendanceReport} className="bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium col-span-1 xs:col-span-2 sm:col-span-1 whitespace-nowrap">
-                  Filter
-                </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+                <select
+                  className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
+                  value={reportFilters.employee_select}
+                  onChange={(e) => {
+                    const nextEmployeeId = e.target.value;
+                    setSelectedEmployeeReport(
+                      employees.find((emp) => emp.employee_id === nextEmployeeId) || null
+                    );
+                    applyReportFilters({
+                      employee_select: nextEmployeeId,
+                      employee_id: nextEmployeeId,
+                    });
+                  }}
+                >
+                  <option value="">All employees</option>
+                  {employees.map((employee) => (
+                    <option key={employee.id} value={employee.employee_id}>
+                      {employee.name} ({employee.employee_id})
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                  placeholder="Search Employee ID"
+                  value={reportFilters.employee_id}
+                  onChange={(e) => setReportFilters((prev) => ({
+                    ...prev,
+                    employee_id: e.target.value,
+                    employee_select: prev.employee_select === e.target.value ? prev.employee_select : '',
+                  }))}
+                />
+
+                <select
+                  className="border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white"
+                  value={reportFilters.shift}
+                  onChange={(e) => setReportFilters((prev) => ({ ...prev, shift: e.target.value }))}
+                >
+                  <option value="">All shifts</option>
+                  <option value="general">General</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                </select>
+
+                <input
+                  type="date"
+                  className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                  value={reportFilters.start_date}
+                  onChange={(e) => setReportFilters((prev) => ({ ...prev, start_date: e.target.value }))}
+                />
+
+                <input
+                  type="date"
+                  className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+                  value={reportFilters.end_date}
+                  onChange={(e) => setReportFilters((prev) => ({ ...prev, end_date: e.target.value }))}
+                />
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => applyReportFilters(reportFilters, { page: 1 })}
+                    className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    Filter
+                  </button>
+                  <button
+                    onClick={() => {
+                      const defaults = getDefaultReportFilters();
+                      setSelectedEmployeeReport(null);
+                      applyReportFilters(defaults, { page: 1 });
+                    }}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-slate-600">
+                <div>
+                  Showing page <span className="font-semibold text-slate-900">{reportPage}</span> of{' '}
+                  <span className="font-semibold text-slate-900">{reportTotalPages}</span> with{' '}
+                  <span className="font-semibold text-slate-900">{reportTotalRecords}</span> filtered records.
+                </div>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="report-page-size">Rows</label>
+                  <select
+                    id="report-page-size"
+                    className="border border-slate-200 rounded-lg px-2 py-1 bg-white"
+                    value={reportPageSize}
+                    onChange={(e) => {
+                      const size = Number(e.target.value);
+                      setReportPageSize(size);
+                      applyReportFilters(reportFilters, { page: 1, pageSize: size });
+                    }}
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                    <option value={500}>500</option>
+                  </select>
+                </div>
               </div>
             </SurfaceCard>
 
-            {/* CHARTS */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              {/* ATTENDANCE TREND CHART */}
+            {selectedReportEmployee && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-lg"
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-emerald-600">Individual Report</p>
+                    <h3 className="mt-1 text-2xl font-bold text-slate-900">{selectedReportEmployee.name}</h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Employee ID: <span className="font-semibold">{selectedReportEmployee.employee_id}</span>
+                      {' '}| Email: <span className="font-semibold">{selectedReportEmployee.email || 'Not available'}</span>
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      closeEmployeeReport();
+                      applyReportFilters({
+                        employee_select: '',
+                        employee_id: '',
+                      });
+                    }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Present Days</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{selectedEmployeeSummary.present_days}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Approved Days</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{selectedEmployeeSummary.approved_days}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Pending / Rejected Days</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{selectedEmployeeSummary.pending_or_rejected_days}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Total Worked Hours</p>
+                    <p className="mt-2 text-3xl font-bold text-slate-900">{Number(selectedEmployeeSummary.total_worked_hours || 0).toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200">
+                  <table className="w-full min-w-max text-sm">
+                    <thead className="bg-slate-900 text-white">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Date</th>
+                        <th className="px-4 py-3 text-left">Check-in</th>
+                        <th className="px-4 py-3 text-left">Check-out</th>
+                        <th className="px-4 py-3 text-left">Hours</th>
+                        <th className="px-4 py-3 text-left">Shift</th>
+                        <th className="px-4 py-3 text-left">System Status</th>
+                        <th className="px-4 py-3 text-left">Admin Status</th>
+                        <th className="px-4 py-3 text-left">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportLoading && (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading employee report...</td>
+                        </tr>
+                      )}
+                      {!reportLoading && reportData.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">No attendance records found for this employee.</td>
+                        </tr>
+                      )}
+                      {!reportLoading && reportData.map((record) => (
+                        <tr key={`employee-report-${record.id}`} className="border-t border-slate-200 hover:bg-slate-50">
+                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
+                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
+                          <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                          <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
+                          <td className="px-4 py-3">{record.shift || 'N/A'}</td>
+                          <td className="px-4 py-3">{record.system_status || 'N/A'}</td>
+                          <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
+                          <td className="px-4 py-3">{record.remarks || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </motion.div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1723,7 +2038,6 @@ const AdminDashboard = () => {
                 </ResponsiveContainer>
               </motion.div>
 
-              {/* STATUS DISTRIBUTION CHART */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -1756,11 +2070,10 @@ const AdminDashboard = () => {
               </motion.div>
             </div>
 
-            {/* POLICY ALERTS */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-3xl shadow-lg p-6 mb-6 border border-slate-200"
+              className="bg-white rounded-3xl shadow-lg p-6 border border-slate-200"
             >
               <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
                 <AlertTriangle className="text-red-600" />
@@ -1781,12 +2094,85 @@ const AdminDashboard = () => {
                     <span className="text-red-600 font-semibold">{alert.status || 'Flagged'}</span>
                   </div>
                 ))}
-                {getLateAttendanceAlerts().length === 0 && (
+                {!reportLoading && getLateAttendanceAlerts().length === 0 && (
                   <p className="text-green-600 text-center py-4">No active policy alerts found</p>
                 )}
               </div>
             </motion.div>
-          </>
+
+            <SurfaceCard className="overflow-hidden">
+              <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
+                <h3 className="text-lg font-semibold text-slate-900">Filtered Attendance Report</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Summary cards stay accurate because totals come from the backend summary, not just the current page.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-max text-sm">
+                  <thead className="bg-gradient-to-r from-slate-900 to-slate-700 text-white">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Emp ID</th>
+                      <th className="px-4 py-3 text-left">Name</th>
+                      <th className="px-4 py-3 text-left">Date</th>
+                      <th className="px-4 py-3 text-left">Check-in</th>
+                      <th className="px-4 py-3 text-left">Check-out</th>
+                      <th className="px-4 py-3 text-left">Hours</th>
+                      <th className="px-4 py-3 text-left">Shift</th>
+                      <th className="px-4 py-3 text-left">System Status</th>
+                      <th className="px-4 py-3 text-left">Admin Status</th>
+                      <th className="px-4 py-3 text-left">Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportLoading && (
+                      <tr>
+                        <td colSpan={10} className="px-4 py-8 text-center text-slate-500">Loading attendance report...</td>
+                      </tr>
+                    )}
+                    {!reportLoading && reportData.length === 0 && (
+                      <tr>
+                        <td colSpan={10} className="px-4 py-8 text-center text-slate-500">No attendance records found for the selected filters.</td>
+                      </tr>
+                    )}
+                    {!reportLoading && reportData.map((record) => (
+                      <tr key={record.id} className="border-t border-slate-200 hover:bg-slate-50">
+                        <td className="px-4 py-3">{record.employee_id}</td>
+                        <td className="px-4 py-3">{record.name}</td>
+                        <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
+                        <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
+                        <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                        <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-3">{record.shift || 'N/A'}</td>
+                        <td className="px-4 py-3">{record.system_status || 'N/A'}</td>
+                        <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
+                        <td className="px-4 py-3">{record.remarks || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SurfaceCard>
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                disabled={reportPage <= 1 || reportLoading}
+                onClick={() => fetchReports(reportPage - 1, { filters: reportFilters })}
+                className="px-3 py-1 rounded border disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <span className="text-sm text-gray-700">
+                Page {reportPage} of {reportTotalPages}
+              </span>
+              <button
+                disabled={reportPage >= reportTotalPages || reportLoading}
+                onClick={() => fetchReports(reportPage + 1, { filters: reportFilters })}
+                className="px-3 py-1 rounded border disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         )}
 
         {/* ================= SETTINGS ================= */}
@@ -1878,117 +2264,6 @@ const AdminDashboard = () => {
 
       {/* Password Reset Modal */}
       <AnimatePresence>
-        {selectedEmployeeReport && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <motion.div initial={{ scale: 0.96, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 20 }} className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl border border-slate-200">
-              <div className="border-b border-slate-200 bg-gradient-to-r from-emerald-600 to-teal-600 p-6 text-white">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-emerald-100">Individual Employee Report</p>
-                    <h3 className="mt-1 text-2xl font-bold">{selectedEmployeeReport.name}</h3>
-                    <p className="mt-1 text-sm text-emerald-50">
-                      Employee ID: {selectedEmployeeReport.employee_id} | {selectedEmployeeReport.email || 'No email'}
-                    </p>
-                  </div>
-                  <button
-                    onClick={closeEmployeeReport}
-                    className="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold hover:bg-white/25"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-
-              <div className="max-h-[calc(90vh-112px)] overflow-y-auto p-6">
-                <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <input
-                        type="date"
-                        value={employeeReportFilters.start_date}
-                        onChange={(e) => setEmployeeReportFilters((prev) => ({ ...prev, start_date: e.target.value }))}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      />
-                      <input
-                        type="date"
-                        value={employeeReportFilters.end_date}
-                        onChange={(e) => setEmployeeReportFilters((prev) => ({ ...prev, end_date: e.target.value }))}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                      />
-                      <button
-                        onClick={() => fetchEmployeeReport(selectedEmployeeReport.employee_id)}
-                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                      >
-                        Load Report
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Records</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportData.length}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Present Days</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportSummary.presentDays}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Hours</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">{employeeReportSummary.totalHours.toFixed(2)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  Event days in selected period: <span className="font-semibold">{employeeReportSummary.eventDays}</span>
-                </div>
-
-                <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200">
-                  <table className="w-full min-w-max text-sm">
-                    <thead className="bg-slate-900 text-white">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Date</th>
-                        <th className="px-4 py-3 text-left">Check-in</th>
-                        <th className="px-4 py-3 text-left">Check-out</th>
-                        <th className="px-4 py-3 text-left">Hours</th>
-                        <th className="px-4 py-3 text-left">Deficit</th>
-                        <th className="px-4 py-3 text-left">Extra</th>
-                        <th className="px-4 py-3 text-left">Status</th>
-                        <th className="px-4 py-3 text-left">Admin</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {employeeReportLoading && (
-                        <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading employee report...</td>
-                        </tr>
-                      )}
-                      {!employeeReportLoading && employeeReportData.length === 0 && (
-                        <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center text-slate-500">No attendance records found for this employee.</td>
-                        </tr>
-                      )}
-                      {!employeeReportLoading && employeeReportData.map((record) => (
-                        <tr key={record.id} className="border-t border-slate-200 hover:bg-slate-50">
-                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
-                          <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
-                          <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
-                          <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
-                          <td className="px-4 py-3">{Number(record.deficit_hours ?? 0).toFixed(2)}</td>
-                          <td className="px-4 py-3">{Number(record.extra_hours ?? 0).toFixed(2)}</td>
-                          <td className="px-4 py-3">{record.status || 'N/A'}</td>
-                          <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-
         {resetPasswordEmployee && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md border border-gray-100">
