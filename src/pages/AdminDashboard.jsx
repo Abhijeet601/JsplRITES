@@ -779,11 +779,6 @@ const AdminDashboard = () => {
     }));
   };
 
-  const stats = {
-    totalEmployees: reportOverview.totalEmployees,
-    todayAttendance: reportOverview.presentToday,
-  };
-
   // Helper functions for charts and alerts
   const getAttendanceTrendData = () => {
     const last7Days = [];
@@ -1188,35 +1183,6 @@ const AdminDashboard = () => {
             </div>
           </motion.div>
         )}
-        {/* STATS */}
-        {activeTab === 'reports' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-blue-100 text-sm">Total Employees</p>
-              <p className="text-4xl font-bold">{stats.totalEmployees}</p>
-              <Users className="opacity-40 absolute right-6 top-6" size={40} />
-            </div>
-
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-green-100 text-sm">Present Today</p>
-              <p className="text-4xl font-bold">{stats.todayAttendance}</p>
-              <Calendar className="opacity-40 absolute right-6 top-6" size={40} />
-            </div>
-
-            <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-amber-100 text-sm">Late Today</p>
-              <p className="text-4xl font-bold">{getLateTodayCount()}</p>
-              <AlertTriangle className="opacity-40 absolute right-6 top-6" size={40} />
-            </div>
-
-            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl shadow-lg p-6 text-white">
-              <p className="text-purple-100 text-sm">Pending Approvals</p>
-              <p className="text-4xl font-bold">{reportOverview.pendingApprovals}</p>
-              <Clock className="opacity-40 absolute right-6 top-6" size={40} />
-            </div>
-          </div>
-        )}
-
         {loading && <p className="text-center">Loading...</p>}
         {error && <p className="text-red-600">{error}</p>}
 
@@ -2100,78 +2066,82 @@ const AdminDashboard = () => {
               </div>
             </motion.div>
 
-            <SurfaceCard className="overflow-hidden">
-              <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
-                <h3 className="text-lg font-semibold text-slate-900">Filtered Attendance Report</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Summary cards stay accurate because totals come from the backend summary, not just the current page.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-max text-sm">
-                  <thead className="bg-gradient-to-r from-slate-900 to-slate-700 text-white">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Emp ID</th>
-                      <th className="px-4 py-3 text-left">Name</th>
-                      <th className="px-4 py-3 text-left">Date</th>
-                      <th className="px-4 py-3 text-left">Check-in</th>
-                      <th className="px-4 py-3 text-left">Check-out</th>
-                      <th className="px-4 py-3 text-left">Hours</th>
-                      <th className="px-4 py-3 text-left">Shift</th>
-                      <th className="px-4 py-3 text-left">System Status</th>
-                      <th className="px-4 py-3 text-left">Admin Status</th>
-                      <th className="px-4 py-3 text-left">Remarks</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportLoading && (
-                      <tr>
-                        <td colSpan={10} className="px-4 py-8 text-center text-slate-500">Loading attendance report...</td>
-                      </tr>
-                    )}
-                    {!reportLoading && reportData.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="px-4 py-8 text-center text-slate-500">No attendance records found for the selected filters.</td>
-                      </tr>
-                    )}
-                    {!reportLoading && reportData.map((record) => (
-                      <tr key={record.id} className="border-t border-slate-200 hover:bg-slate-50">
-                        <td className="px-4 py-3">{record.employee_id}</td>
-                        <td className="px-4 py-3">{record.name}</td>
-                        <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
-                        <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
-                        <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
-                        <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-3">{record.shift || 'N/A'}</td>
-                        <td className="px-4 py-3">{record.system_status || 'N/A'}</td>
-                        <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
-                        <td className="px-4 py-3">{record.remarks || '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </SurfaceCard>
+            {!selectedReportEmployee && (
+              <>
+                <SurfaceCard className="overflow-hidden">
+                  <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
+                    <h3 className="text-lg font-semibold text-slate-900">Filtered Attendance Report</h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Summary cards stay accurate because totals come from the backend summary, not just the current page.
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-max text-sm">
+                      <thead className="bg-gradient-to-r from-slate-900 to-slate-700 text-white">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Emp ID</th>
+                          <th className="px-4 py-3 text-left">Name</th>
+                          <th className="px-4 py-3 text-left">Date</th>
+                          <th className="px-4 py-3 text-left">Check-in</th>
+                          <th className="px-4 py-3 text-left">Check-out</th>
+                          <th className="px-4 py-3 text-left">Hours</th>
+                          <th className="px-4 py-3 text-left">Shift</th>
+                          <th className="px-4 py-3 text-left">System Status</th>
+                          <th className="px-4 py-3 text-left">Admin Status</th>
+                          <th className="px-4 py-3 text-left">Remarks</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportLoading && (
+                          <tr>
+                            <td colSpan={10} className="px-4 py-8 text-center text-slate-500">Loading attendance report...</td>
+                          </tr>
+                        )}
+                        {!reportLoading && reportData.length === 0 && (
+                          <tr>
+                            <td colSpan={10} className="px-4 py-8 text-center text-slate-500">No attendance records found for the selected filters.</td>
+                          </tr>
+                        )}
+                        {!reportLoading && reportData.map((record) => (
+                          <tr key={record.id} className="border-t border-slate-200 hover:bg-slate-50">
+                            <td className="px-4 py-3">{record.employee_id}</td>
+                            <td className="px-4 py-3">{record.name}</td>
+                            <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleDateString() : 'N/A'}</td>
+                            <td className="px-4 py-3">{record.check_in_time ? new Date(record.check_in_time).toLocaleString() : 'N/A'}</td>
+                            <td className="px-4 py-3">{record.check_out_time ? new Date(record.check_out_time).toLocaleString() : 'Not checked out'}</td>
+                            <td className="px-4 py-3">{Number(record.total_hours ?? record.work_hours ?? 0).toFixed(2)}</td>
+                            <td className="px-4 py-3">{record.shift || 'N/A'}</td>
+                            <td className="px-4 py-3">{record.system_status || 'N/A'}</td>
+                            <td className="px-4 py-3">{record.admin_status || 'pending'}</td>
+                            <td className="px-4 py-3">{record.remarks || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </SurfaceCard>
 
-            <div className="flex items-center justify-end gap-2">
-              <button
-                disabled={reportPage <= 1 || reportLoading}
-                onClick={() => fetchReports(reportPage - 1, { filters: reportFilters })}
-                className="px-3 py-1 rounded border disabled:opacity-50"
-              >
-                Prev
-              </button>
-              <span className="text-sm text-gray-700">
-                Page {reportPage} of {reportTotalPages}
-              </span>
-              <button
-                disabled={reportPage >= reportTotalPages || reportLoading}
-                onClick={() => fetchReports(reportPage + 1, { filters: reportFilters })}
-                className="px-3 py-1 rounded border disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    disabled={reportPage <= 1 || reportLoading}
+                    onClick={() => fetchReports(reportPage - 1, { filters: reportFilters })}
+                    className="px-3 py-1 rounded border disabled:opacity-50"
+                  >
+                    Prev
+                  </button>
+                  <span className="text-sm text-gray-700">
+                    Page {reportPage} of {reportTotalPages}
+                  </span>
+                  <button
+                    disabled={reportPage >= reportTotalPages || reportLoading}
+                    onClick={() => fetchReports(reportPage + 1, { filters: reportFilters })}
+                    className="px-3 py-1 rounded border disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
