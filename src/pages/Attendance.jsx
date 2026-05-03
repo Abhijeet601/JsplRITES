@@ -44,6 +44,8 @@ const Attendance = () => {
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [todaySummary, setTodaySummary] = useState(null);
+  const [faceEnrollmentRequired, setFaceEnrollmentRequired] = useState(false);
+  const [enrollmentLoading, setEnrollmentLoading] = useState(false);
 
   // Permission status states: 'pending' | 'requesting' | 'granted' | 'denied'
   const [locationPermissionStatus, setLocationPermissionStatus] = useState('pending');
@@ -83,9 +85,12 @@ const Attendance = () => {
     try {
       setSummaryLoading(true);
       const { data } = await api.get('/api/user/today-summary');
-      setTodaySummary(data?.today_summary || null);
+      const summary = data?.today_summary || null;
+      setTodaySummary(summary);
+      setFaceEnrollmentRequired(Boolean(summary?.face_enrollment_required));
     } catch {
       setTodaySummary(null);
+      setFaceEnrollmentRequired(false);
     } finally {
       if (isMountedRef.current) setSummaryLoading(false);
     }
@@ -193,6 +198,35 @@ const Attendance = () => {
     setCameraPermissionStatus('granted');
   }, []);
 
+  const handleFaceEnrollment = useCallback(async () => {
+    if (!capturedImage) {
+      setError('Please capture your face image first');
+      return;
+    }
+
+    setEnrollmentLoading(true);
+    setError('');
+    setWarning('');
+
+    try {
+      const formData = new FormData();
+      formData.append('live_image', capturedImage, 'face-enrollment.jpg');
+
+      await api.post('/api/user/face-enrollment', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+
+      setToast({ message: 'Face enrolled successfully. Please capture a fresh image for attendance.', type: 'success' });
+      setCapturedImage(null);
+      setShowImagePreview(false);
+      await fetchSummary();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Face enrollment failed');
+    } finally {
+      if (isMountedRef.current) setEnrollmentLoading(false);
+    }
+  }, [capturedImage, fetchSummary]);
+
   // ================= SUBMIT =================
   const handleSubmit = useCallback(async () => {
     setWarning('');
@@ -203,6 +237,11 @@ const Attendance = () => {
 
     if (hasCheckedIn && hasCheckedOut) {
       setWarning('Attendance already completed for today.');
+      return;
+    }
+
+    if (faceEnrollmentRequired) {
+      setError('Your face enrollment was removed. Please enroll your face again before marking attendance.');
       return;
     }
 
@@ -250,7 +289,10 @@ const Attendance = () => {
       }, 2500);
     } catch (err) {
       const detail = err?.response?.data?.detail || 'Attendance marking failed';
-      if (detail.toLowerCase().includes('warning')) {
+      if (String(detail).toLowerCase().includes('no face data registered')) {
+        setFaceEnrollmentRequired(true);
+        setError('Your enrolled face was removed. Please capture and save a new face image.');
+      } else if (detail.toLowerCase().includes('warning')) {
         setWarning(detail);
       } else {
         setError(detail);
@@ -258,7 +300,7 @@ const Attendance = () => {
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
-  }, [capturedImage, fetchSummary, getLocation, location, navigate, todaySummary]);
+  }, [capturedImage, faceEnrollmentRequired, fetchSummary, getLocation, location, navigate, todaySummary]);
 
   if (!user) return null;
 
@@ -269,12 +311,13 @@ const Attendance = () => {
     : hasCheckedIn
       ? 'check_out'
       : 'check_in';
-  const canSubmit = !loading && !!capturedImage && !!location;
+  const canSubmit = !loading && !faceEnrollmentRequired && !!capturedImage && !!location;
   const attendanceActionLabel = attendanceState === 'check_out' ? 'Check-Out' : 'Check-In';
+  const faceStepLabel = faceEnrollmentRequired ? 'Face enrolled' : 'Face captured';
 
   const steps = [
     { label: 'Location captured', done: Boolean(location) },
-    { label: 'Face captured', done: Boolean(capturedImage) },
+    { label: faceStepLabel, done: faceEnrollmentRequired ? Boolean(todaySummary?.has_face_enrolled) : Boolean(capturedImage) },
     { label: attendanceState === 'completed' ? 'Attendance completed' : 'Ready to submit', done: attendanceState === 'completed' || canSubmit },
   ];
 
@@ -400,6 +443,9 @@ const Attendance = () => {
                 </div>
                 <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-700">
                   Status: <span className="font-semibold">{todaySummary?.status || 'Pending'}</span>
+                </div>
+                <div className={`rounded-full border px-3 py-2 ${faceEnrollmentRequired ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+                  Face Enrollment: <span className="font-semibold">{faceEnrollmentRequired ? 'Required' : 'Ready'}</span>
                 </div>
                 <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-slate-700">
                   Punch State: <span className="font-semibold">
@@ -605,7 +651,11 @@ const Attendance = () => {
           <Info className="text-cyan-700 mt-1 flex-shrink-0" size={20} />
           <div className="text-sm text-cyan-900">
             <p className="font-semibold mb-1">Before you submit:</p>
-            <p>Keep your face centered, ensure lighting is clear, and wait for both location and face capture to complete.</p>
+            <p>
+              {faceEnrollmentRequired
+                ? 'Your saved face enrollment is missing. Capture a clear image and save it again before marking attendance.'
+                : 'Keep your face centered, ensure lighting is clear, and wait for both location and face capture to complete.'}
+            </p>
           </div>
         </motion.div>
 
@@ -669,16 +719,22 @@ const Attendance = () => {
             className="xl:col-span-3 bg-white rounded-3xl border border-slate-200 shadow-lg p-6"
           >
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-slate-800">
-              <Camera className="text-emerald-700" size={22} /> Step 3: Face Verification
+              <Camera className="text-emerald-700" size={22} /> Step 3: {faceEnrollmentRequired ? 'Face Re-Enrollment' : 'Face Verification'}
             </h2>
 
             <div className="space-y-4">
-              <CameraCapture onCapture={handleImageCapture} buttonText="Capture Face" />
+              {faceEnrollmentRequired && (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Admin removed this user&apos;s enrolled face. Capture a new face image and save it here, then capture again for attendance.
+                </div>
+              )}
+
+              <CameraCapture onCapture={handleImageCapture} buttonText={faceEnrollmentRequired ? 'Capture New Face' : 'Capture Face'} />
 
               {capturedImage && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-emerald-700 font-semibold">
                   <CheckCircle size={18} className="text-emerald-600" />
-                  Face image captured successfully
+                  {faceEnrollmentRequired ? 'New face image captured successfully' : 'Face image captured successfully'}
                 </motion.div>
               )}
 
@@ -691,6 +747,16 @@ const Attendance = () => {
                   <p className="text-xs text-slate-600 mb-2">Latest capture preview:</p>
                   <img src={previewUrl} alt="Captured face" className="w-full rounded-lg max-h-56 object-cover" />
                 </motion.div>
+              )}
+
+              {faceEnrollmentRequired && (
+                <button
+                  onClick={handleFaceEnrollment}
+                  disabled={!capturedImage || enrollmentLoading}
+                  className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-semibold px-5 py-3 rounded-xl shadow disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {enrollmentLoading ? 'Saving Face...' : 'Save Face Enrollment'}
+                </button>
               )}
             </div>
           </motion.div>
@@ -706,6 +772,10 @@ const Attendance = () => {
             <div className="text-sm text-slate-600">
               {attendanceState === 'completed' ? (
                 <p className="text-slate-700 font-semibold">Today&apos;s attendance is fully recorded.</p>
+              ) : faceEnrollmentRequired ? (
+                <p className="font-semibold text-amber-700">
+                  Save a new face enrollment first, then capture a fresh face image to continue.
+                </p>
               ) : canSubmit ? (
                 <p className={`font-semibold ${attendanceState === 'check_in' ? 'text-emerald-700' : 'text-red-700'}`}>
                   All checks complete. You can {attendanceState === 'check_in' ? 'check in' : 'check out'} now.

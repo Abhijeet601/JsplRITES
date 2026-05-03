@@ -137,6 +137,7 @@ const AdminDashboard = () => {
   const [error, setError] = useState('');
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [deletingEmployeeId, setDeletingEmployeeId] = useState(null);
+  const [deletingFaceEnrollmentId, setDeletingFaceEnrollmentId] = useState(null);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -505,6 +506,29 @@ const AdminDashboard = () => {
       showToast('Failed to delete employee', 'error');
     } finally {
       setDeletingEmployeeId(null);
+    }
+  };
+
+  const deleteEmployeeFaceEnrollment = async (employee) => {
+    const confirmed = window.confirm(
+      `Delete face enrollment for ${employee.name} (${employee.employee_id})? The employee account will stay active and the user will need to enroll a new face after login.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingFaceEnrollmentId(employee.id);
+      await api.delete(`/api/admin/employees/${employee.id}/face-enrollment`);
+      setEmployees((prev) => prev.map((item) => (
+        item.id === employee.id
+          ? { ...item, has_face_enrolled: false, face_image_path: null }
+          : item
+      )));
+      showToast('Face enrollment deleted successfully', 'success');
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to delete face enrollment');
+      showToast('Failed to delete face enrollment', 'error');
+    } finally {
+      setDeletingFaceEnrollmentId(null);
     }
   };
 
@@ -1562,6 +1586,7 @@ const AdminDashboard = () => {
                   <th className="p-2 sm:p-4 text-left whitespace-nowrap">Email</th>
                   <th className="p-2 sm:p-4 text-left whitespace-nowrap">Mobile</th>
                   <th className="p-2 sm:p-4 text-left whitespace-nowrap">Base Location</th>
+                  <th className="p-2 sm:p-4 text-left whitespace-nowrap">Face Enrollment</th>
                   <th className="p-2 sm:p-4 text-left whitespace-nowrap">Action</th>
                 </tr>
               </thead>
@@ -1641,6 +1666,13 @@ const AdminDashboard = () => {
                         </div>
                       )}
                     </td>
+                    <td className="p-2 sm:p-4">
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                        emp.has_face_enrolled ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {emp.has_face_enrolled ? 'Enrolled' : 'Not Enrolled'}
+                      </span>
+                    </td>
                     <td className="p-4 space-x-2">
                       {editingEmployee === emp.id ? (
                         <>
@@ -1671,6 +1703,13 @@ const AdminDashboard = () => {
                             className="bg-red-600 text-white px-3 py-1 rounded text-sm disabled:opacity-60"
                           >
                             {deletingEmployeeId === emp.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                          <button
+                            onClick={() => deleteEmployeeFaceEnrollment(emp)}
+                            disabled={deletingFaceEnrollmentId === emp.id || !emp.has_face_enrolled}
+                            className="bg-amber-600 text-white px-3 py-1 rounded text-sm disabled:opacity-60"
+                          >
+                            {deletingFaceEnrollmentId === emp.id ? 'Removing Face...' : 'Delete Face'}
                           </button>
                           <button
                             onClick={() => setResetPasswordEmployee(emp)}

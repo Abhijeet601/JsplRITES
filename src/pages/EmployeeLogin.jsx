@@ -105,6 +105,7 @@ const EmployeeLogin = () => {
         shift_type: formData.shift_type,
         shift_time: getSelectedShift(),
         required_work_minutes: REQUIRED_WORK_MINUTES,
+        has_face_enrolled: Boolean(response.data.has_face_enrolled),
       }, response.data.access_token);
 
       navigate('/dashboard');
