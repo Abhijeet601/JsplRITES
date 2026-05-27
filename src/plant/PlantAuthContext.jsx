@@ -12,19 +12,26 @@ export const usePlantAuth = () => {
 
 export const PlantAuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const raw = localStorage.getItem('plant_user');
-    return raw ? JSON.parse(raw) : null;
+    const raw = sessionStorage.getItem('plant_user');
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      sessionStorage.removeItem('plant_user');
+      sessionStorage.removeItem('plant_token');
+      return null;
+    }
   });
 
   const login = (nextUser, token) => {
-    localStorage.setItem('plant_user', JSON.stringify(nextUser));
-    localStorage.setItem('plant_token', token);
+    sessionStorage.setItem('plant_user', JSON.stringify(nextUser));
+    sessionStorage.setItem('plant_token', token);
     setUser(nextUser);
   };
 
   const logout = () => {
-    localStorage.removeItem('plant_user');
-    localStorage.removeItem('plant_token');
+    sessionStorage.removeItem('plant_user');
+    sessionStorage.removeItem('plant_token');
     setUser(null);
   };
 
